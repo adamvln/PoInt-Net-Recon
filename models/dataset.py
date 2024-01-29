@@ -38,6 +38,57 @@ class PcdIID(data.Dataset):
     def __len__(self):
         return (len(self.file_list))
 
+class PcdIID_Recon(data.Dataset):
+    def __init__(self, pcd_path, normals_path, train=False, foldn=0, sizes=16):
+        """
+        Initializes the PcdIID dataset class.
+
+        Args:
+            pcd_path (str): Path to the directory containing point cloud data files.
+            normals_path (str): Path to the directory containing normals data files.
+            train (bool, optional): Flag to indicate if the dataset is used for training. Defaults to False.
+            foldn (int, optional): Fold number for cross-validation, if applicable. Defaults to 0.
+            sizes (int, optional): The size of the data to be used. Defaults to 16.
+        """
+        self.pcd_path = pcd_path
+        self.normals_path = normals_path
+        self.file_list = os.listdir(pcd_path)
+        self.train = train
+
+    def __getitem__(self, index):
+        """
+        Retrieves a point cloud and its corresponding normals from the dataset at the specified index.
+
+        Processing steps:
+        1. Load the point cloud and normal data from their respective numpy files.
+        2. Ensure the data is in the correct format (float32).
+        3. Transpose the data to match the expected input format for subsequent processing.
+        4. Convert numpy arrays to PyTorch tensors for compatibility with PyTorch models.
+
+        Args:
+            index (int): The index of the data item to be retrieved.
+
+        Returns:
+            tuple: A tuple containing the point cloud tensor, normals tensor, and filename without extension.
+        """
+        fn = self.file_list[index]
+        fnn = fn.strip().split('.')[0]
+        pcd = np.load(os.path.join(self.pcd_path, fnn + '.npy'))
+        norms = np.load(os.path.join(self.normals_path, fnn + '.npy'))
+            
+        p, c_p = pcd.shape
+    
+        pcd = np.array(pcd, dtype='float32')
+        norms = np.array(norms, 'float32')
+        pcd = pcd.transpose(1, 0)
+        norms = norms.transpose(1, 0)
+        norms = torch.from_numpy(norms.copy())
+        pcd = torch.from_numpy(pcd.copy())
+        return pcd, norms, fnn
+
+    def __len__(self):
+        return len(self.file_list)
+
 
 if __name__ == '__main__':
     dataset = PcdIID(train=True)

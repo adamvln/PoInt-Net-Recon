@@ -49,33 +49,70 @@ if not os.path.exists(log_path):
     os.makedirs(log_path)
 os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 # load data
-dataset_test = PcdIID(train=False)
+# dataset_test = PcdIID(train=False)
+dataset_test = PcdIID_Recon('./Data/pcd/pcd_with_i_0.1/', './Data/gts/nm_0.1/', train=False)
 dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=opt.workers)
 len_dataset_test = len(dataset_test)
 print('len_dataset_test:', len(dataset_test))
 
-# create network
+# Initialize the PointNet network with k=3
 PoIntNet = PoInt_Net(k=3) 
+
+# Move the network to the GPU for faster computation
 network = PoIntNet.cuda()
-## load our pretrained model
+
+# Load the pretrained model weights into the network
 network.load_state_dict(torch.load('./pre_trained_model/all_intrinsic.pth'))
 print('start train.....')
+
+# Disable gradient computations for evaluation (saves memory and computations)
 with torch.no_grad():
+    # Set the network to evaluation mode (affects layers like dropout and batchnorm)
     network.eval()
+
+    # Record the start time for evaluating performance
     start = time.time()
+
+    # Iterate over the test dataset
     for i, data in tqdm(enumerate(dataloader_test)):
-        img, norms,fn = data
+        # Unpack the data (image, normals, filename)
+        img, norms, fn = data
+        print(img.shape)
+        img = img[:,:6,:]
+        # Move the data to the GPU
         img = img.cuda()
         norms = norms.cuda()
-        pred_shd,pred_alb = network(img,norms,point_pos_in=1,ShaderOnly=False)
-        w = 512
-        h = 512
-        n_b = pred_alb.shape[0]
-        img_tensor = img[:,3:,:]
-        img_pic = torch2img(img_tensor,h,w)
-        alb_pic = torch2img(pred_alb,h,w)
-        shd_pic = torch2img(pred_shd,h,w)
-        img_final = np.concatenate((img_pic,alb_pic,shd_pic),axis=1) 
-        cv2.imwrite(log_path+'/'+str(fn[0])+'all.png',img_final[...,::-1])
+
+        # Forward pass through the network to get predictions
+        pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
+        print(pred_shd.shape)
+        print(pred_alb.shape)
+        
+        # # Save the predicted albedo and shading numpy arrays
+        np.save(log_path + '/albedo_estimate/' + str(fn[0]) + '_alb.npy', pred_alb.squeeze(0).detach().cpu().numpy())
+        np.save(log_path + '/shading_estimate/' + str(fn[0]) + '_shd.npy', pred_shd.squeeze(0).detach().cpu().numpy())
+
+        # # Set image dimensions
+        # w, h = 512, 512
+
+        # # Get the batch size from the predicted albedo shape
+        # n_b = pred_alb.shape[0]
+
+        # # Extract RGB channels from the image tensor
+        # img_tensor = img[:, 3:, :]
+
+        # # Convert tensors to images for visualization
+        # img_pic = torch2img(img_tensor, h, w)
+        # alb_pic = torch2img(pred_alb, h, w)
+        # shd_pic = torch2img(pred_shd, h, w)
+
+        # # Concatenate the original, albedo, and shading images horizontally
+        # img_final = np.concatenate((img_pic, alb_pic, shd_pic), axis=1) 
+
+        # # Save the concatenated image. Reverse channels from BGR to RGB for correct color display
+        # cv2.imwrite(log_path + '/' + str(fn[0]) + 'all.png', img_final[..., ::-1])
+
+    # Calculate and print the total time taken for the evaluation
     time_use2 = time.time() - start
     print(time_use2)
+

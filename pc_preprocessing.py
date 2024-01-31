@@ -109,16 +109,9 @@ def normalize_point_clouds_in_folder(folder_path):
             if point_cloud.shape[1] < 3:
                 print(f"File {file} does not have enough columns to represent XYZ coordinates.")
                 continue
-
-            # Subtract the mean
-            mean_val = np.mean(point_cloud[:, :3], axis=0)
-            point_cloud[:, :3] -= mean_val
-
-            # Divide by the maximum absolute value
-            max_abs_val = np.max(np.abs(point_cloud[:, :3]))
-            if max_abs_val != 0:
-                point_cloud[:, :3] /= max_abs_val
-
+            #Normalize colors and XYZ coordinates
+            point_cloud[:, :3] = point_cloud[:, :3]/1000000
+            point_cloud[:,3:6] = point_cloud[:,3:6]/65536.
             # Save the normalized point cloud back to the file
             np.save(file_path, point_cloud)
             print(f"Normalized and saved point cloud in {file_path}")
@@ -165,15 +158,52 @@ def process_and_normalize_normals(input_folder, output_folder, search_param):
             np.save(normalized_file_path, normalized_normals)
             print(f"Processed and saved normalized normals for {np_file_path} in {output_folder}")
 
+def xiaoyan_processing(input_folder, output_folder, output_normal):
+    convert_ply_to_npy_with_i(input_folder, output_folder)
+
+    # Create the output folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    for file in os.listdir(output_folder):
+        if file.endswith('.npy'):
+            np_file_path = os.path.join(output_folder, file)
+
+            # Load the point cloud data from a NumPy file
+            pcd_np = np.load(np_file_path)
+            print(pcd_np.shape)
+
+            pcd_np[:,3:] = pcd_np[:,3:]/65536.
+            pcd_np[:,:3] = pcd_np[:,:3]
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(pcd_np[:,:3])
+            pcd.colors = o3d.utility.Vector3dVector(pcd_np[:,3:6].astype(np.float32))
+
+            ## comment downpcd
+            show_in = pcd
+            # o3d.visualization.draw_geometries([show_in])
+            downpcd = show_in.voxel_down_sample(voxel_size=0.1)
+
+
+            # get downsampling data part
+            downpcd_np = np.array(downpcd.colors)
+
+            pcd_xyz = np.array(downpcd.points)/1000000
+            pcd_rgb = np.array(downpcd.colors)
+            pcd_re = np.concatenate((pcd_xyz, pcd_rgb), 1)
+
+            # Save the normalized point cloud back to the file
+            np.save(np_file_path, pcd_re)
+    process_and_normalize_normals(output_folder, output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+
 def main(input_folder, output_folder, output_normal):
     convert_ply_to_npy_with_i(input_folder, output_folder)
-    voxel_downsample_folder(output_folder, 0.1)
-    normalize_point_clouds_in_folder(output_folder)
-    process_and_normalize_normals(output_folder, output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+    # voxel_downsample_folder(output_folder, 0.1)
+    # normalize_point_clouds_in_folder(output_folder)
+    # process_and_normalize_normals(output_folder, output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
 
 if __name__ == "__main__":
     input_folder = 'Data/ply_pc'
-    output_folder = 'Data/pcd/pcd_with_i_0.1'
-    output_normal = 'Data/gts/nm_0.1'
+    output_folder = 'Data/pcd/pcd_with_i'
+    output_normal = 'Data/gts/nm_xiaoyan'
     main(input_folder, output_folder, output_normal)
-

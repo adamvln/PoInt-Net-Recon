@@ -50,7 +50,7 @@ if not os.path.exists(log_path):
 os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 # load data
 # dataset_test = PcdIID(train=False)
-dataset_test = PcdIID_Recon('./Data/pcd/pcd_with_i_0.1/', './Data/gts/nm_0.1/', train=False)
+dataset_test = PcdIID_Recon('./Data/pcd/pcd_from_laz_with_i_0.1/', './Data/gts/nm_from_laz_0.1/', train=False)
 dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=opt.workers)
 len_dataset_test = len(dataset_test)
 print('len_dataset_test:', len(dataset_test))
@@ -76,21 +76,23 @@ with torch.no_grad():
     # Iterate over the test dataset
     for i, data in tqdm(enumerate(dataloader_test)):
         # Unpack the data (image, normals, filename)
-        img, norms, fn = data
+        img, norms,_, fn = data
         print(img.shape)
-        img = img[:,:6,:]
         # Move the data to the GPU
         img = img.cuda()
         norms = norms.cuda()
 
         # Forward pass through the network to get predictions
         pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
-        print(pred_shd.shape)
-        print(pred_alb.shape)
+        final_alb = img + 0  # Ensure a copy is made
+        final_alb[:, 3:, :] = pred_alb
+
+        final_shd = img + 0
+        final_shd[:, 3:, :] = pred_shd
         
         # # Save the predicted albedo and shading numpy arrays
-        np.save(log_path + '/albedo_estimate/' + str(fn[0]) + '_alb.npy', pred_alb.squeeze(0).detach().cpu().numpy())
-        np.save(log_path + '/shading_estimate/' + str(fn[0]) + '_shd.npy', pred_shd.squeeze(0).detach().cpu().numpy())
+        np.save(log_path + '/albedo_estimate/' + str(fn[0]) + '_alb.npy', final_alb.squeeze(0).transpose(1,0).detach().cpu().numpy())
+        np.save(log_path + '/shading_estimate/' + str(fn[0]) + '_shd.npy', final_shd.squeeze(0).transpose(1,0).detach().cpu().numpy())
 
         # # Set image dimensions
         # w, h = 512, 512

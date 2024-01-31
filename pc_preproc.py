@@ -216,7 +216,7 @@ def main_downsampling():
 def main_laz2npy():
     # Define the input and output directories
     input_dir = 'Data/laz_pc'
-    output_dir = 'Data/npy_pc'
+    output_dir = 'Data/pcd/pcd_from_laz'
 
     # Create the output directory if it doesn't exist
     if not os.path.exists(output_dir):
@@ -306,4 +306,4 @@ def main_normals_translation(folder_path):
 
 if __name__ == "__main__":
     # main_normals_translation("Data/normals_down_0.1")
-    main_downsampling()
+    main_laz2npy()

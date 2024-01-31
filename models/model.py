@@ -234,3 +234,25 @@ class PoInt_Net(nn.Module):
         alb_pred,_,_ = self.albedoNet(x)
         _,_,final_shd = self.shadingnet(x,img_normal,point_pos_in=1,ShaderOnly=False)
         return final_shd,alb_pred
+
+class PoInt_Net_only_alb(nn.Module):
+    """
+    input: point cloud
+    out: predict light direction per point 
+        final render shading 
+        Albedo  AlbedoNet
+    para: ShaderOnly: check shader
+    Note: the paras are pre-train and loaded
+
+    
+    """
+    def __init__(self, k = 2,feature_transform=False):
+        super(PoInt_Net_only_alb, self).__init__()
+        self.shadingnet = PointNet_IID_shd_2(k,feature_transform=False)
+        self.albedoNet = PointNet_IID(k,feature_transform=False)
+
+    
+    def forward(self,x,point_pos_in=1,ShaderOnly=False):
+        alb_pred,_,_ = self.albedoNet(x)
+        # _,_,final_shd = self.shadingnet(x,img_normal,point_pos_in=1,ShaderOnly=False)
+        return alb_pred

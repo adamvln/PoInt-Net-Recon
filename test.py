@@ -3,13 +3,16 @@ import argparse
 import torch
 import numpy as np
 import torch.utils.data
+import torch.nn as nn
+import torch.optim as optim
 from tqdm import tqdm
 import time
 import sys
 
-sys.path.append('./models/')
-from model import *
-from dataset import *
+# sys.path.append('./models/')
+from utils import *
+from models.model import *
+from models.dataset import *
 
 def torch2img(tensor, h, w):
     """
@@ -29,7 +32,7 @@ def torch2img(tensor, h, w):
     img = img * 255.
     return img
 
-def infer(network, dataloader, log_path):
+def test_model(network, dataloader, log_path):
     """
     Perform inference on a dataset using a given network and save the output.
 
@@ -50,6 +53,8 @@ def infer(network, dataloader, log_path):
             img = img.cuda()
             norms = norms.cuda()
 
+            print(img.shape, norms.shape)
+
             pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
 
             final_alb = img + 0
@@ -65,6 +70,47 @@ def infer(network, dataloader, log_path):
         time_use = time.time() - start
         print(f"Total time for evaluation: {time_use} seconds")
 
+def train_model(network, train_loader, optimizer, criterion, epochs):
+    """
+    Train the PoIntNet model.
+
+    Parameters:
+    network (torch.nn.Module): The neural network model.
+    train_loader (torch.utils.data.DataLoader): DataLoader for the training dataset.
+    optimizer (torch.optim.Optimizer): Optimizer for the training.
+    criterion (torch.nn.Module): Loss function.
+    epochs (int): Number of epochs to train.
+
+    Returns:
+    None
+    """
+    network.train()
+
+    for epoch in range(epochs):
+        running_loss = 0.0
+        for data in tqdm(train_loader):
+            # Load the data and transfer to GPU
+            img, norms, lid, fn = data
+            img, norms, lid = img.cuda(), norms.cuda(), lid.cuda()
+            print(img.shape, norms.shape)
+            # Zero the parameter gradients
+            optimizer.zero_grad()
+
+            # Forward pass
+            pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
+
+            # Reconstruct the point cloud
+            reconstructed_pcd = reconstruct_image(pred_alb * pred_shd)
+
+            # Compute loss
+            loss = criterion(reconstructed_pcd, img[:, 3:]) 
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_loader)}")
+
 def setup_network():
     """
     Set up and return the PointNet network.
@@ -77,7 +123,7 @@ def setup_network():
     network.load_state_dict(torch.load('./pre_trained_model/all_intrinsic.pth'))
     return network
 
-def main():
+def main_test():
     """
     Main function to handle argument parsing and initiate the inference process.
     """
@@ -101,7 +147,46 @@ def main():
     network = setup_network()
     print('Infering.....')
 
-    infer(network, dataloader_test, log_path)
+    test_model(network, dataloader_test, log_path)
+
+def main_train():
+    """
+    Main training function. Parses command-line arguments, initializes the model,
+    dataloader, loss function, and optimizer, then starts the training process.
+    """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
+    parser.add_argument('--batch_size', type=int, default=4, help='input batch size')
+    parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
+    parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
+    parser.add_argument('--path_to_pc', type=str, default='./Data/pcd/pcd_from_laz_with_i_0.1/', help='path to test data')
+    parser.add_argument('--path_to_nm', type=str, default='./Data/gts/nm_from_laz_0.1/', help='path to test data')
+    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
+    parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/ft_intrinsic.pth', help='path to save the trained model')
+    opt = parser.parse_args()
+
+    # Set the GPU
+    os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
+
+    # Load dataset and create DataLoader
+    dataset = PcdIID_Recon(opt.path_to_pc, opt.path_to_nm, 
+                           train=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, 
+                                             shuffle=True, num_workers=opt.workers, drop_last=True)
+
+    # Initialize the network
+    network = setup_network()
+
+    # Define the loss function and optimizer
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(network.parameters(), lr=opt.lr)
+
+    # Start the training
+    train_model(network, dataloader, optimizer, criterion, opt.epochs)
+
+    # Save the trained model
+    torch.save(network.state_dict(), save_model_path)
 
 if __name__ == "__main__":
-    main()
+    main_train()

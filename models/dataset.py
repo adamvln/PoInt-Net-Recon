@@ -74,17 +74,12 @@ class PcdIID_Recon(data.Dataset):
         fn = self.file_list[index]
         fnn = fn.strip().split('.')[0]
         pcd = np.load(os.path.join(self.pcd_path, fnn + '.npy'))
-        print(pcd.shape)
         norms = np.load(os.path.join(self.normals_path, fnn + '.npy'))
 
         lid = pcd[:,6]
         pcd = pcd[:,:6]
 
         p, c_p = pcd.shape
-    
-        # pcd = np.array(pcd, dtype='float32')
-        # norms = np.array(norms, dtype='float32')
-        # lid = np.array(lid, dtype='float32')
 
         pcd = pcd.transpose(1, 0)
         norms = norms.transpose(1, 0)

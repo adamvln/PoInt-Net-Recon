@@ -151,5 +151,4 @@ if __name__ == "__main__":
     input_folder = 'Data/laz_pc'
     output_folder = 'Data/pcd/pcd_from_laz_with_i_0.1'
     output_normal = 'Data/gts/nm_from_laz_0.1'
-    # main(input_folder, output_folder, output_normal)
-    process_and_normalize_normals(output_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+    main(input_folder, output_folder, output_normal)

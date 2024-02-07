@@ -48,7 +48,6 @@ def process_laz_files(input_folder, output_folder):
             np.save(output_file_path, point_cloud_data)
             print(f'Saved NumPy array to {output_file_path}')
 
-
 def process_point_clouds(folder_path, voxel_size):
     """
     Process all point cloud files in a given folder to downsample them while 
@@ -95,6 +94,7 @@ def process_point_clouds(folder_path, voxel_size):
 
             # Print and save the downsampled point cloud
             print(f'Downsampled shape: {combined_data.shape}')
+            print(np.max(combined_data[:,:6]))
             output_file = os.path.join(folder_path, filename)
             np.save(output_file, combined_data)
             print(f'Saved processed data to {output_file}')
@@ -142,13 +142,13 @@ def process_and_normalize_normals(input_folder, output_folder, search_param):
             print(f"Processed and saved normalized normals for {np_file_path} in {output_folder}")
 
 # Example usage
-def main(input_folder, output_folder, output_normal, voxel_size = 0.1):
+def main(input_folder, output_folder, output_normal, voxel_size = 0.2):
     process_laz_files(input_folder, output_folder)
-    process_point_clouds(output_folder, voxel_size = 0.1)
+    process_point_clouds(output_folder, voxel_size)
     process_and_normalize_normals(output_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
 
 if __name__ == "__main__":
     input_folder = 'Data/laz_pc'
-    output_folder = 'Data/pcd/pcd_from_laz_with_i_0.1'
-    output_normal = 'Data/gts/nm_from_laz_0.1'
+    output_folder = 'Data/pcd/pcd_from_laz_with_i_0.2'
+    output_normal = 'Data/gts/nm_from_laz_0.2'
     main(input_folder, output_folder, output_normal)

@@ -2,14 +2,20 @@ import os
 import argparse
 import torch
 import numpy as np
+import torch
 import torch.utils.data
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 import time
 import sys
+import wandb
 
+torch.backends.cudnn.enabled = False
+torch.backends.cudnn.deterministic = True
+torch.cuda.empty_cache()
 # sys.path.append('./models/')
+
 from utils import *
 from models.model import *
 from models.dataset import *
@@ -92,7 +98,8 @@ def train_model(network, train_loader, optimizer, criterion, epochs):
             # Load the data and transfer to GPU
             img, norms, lid, fn = data
             img, norms, lid = img.cuda(), norms.cuda(), lid.cuda()
-            print(img.shape, norms.shape)
+            img, norms, lid = img.half(), norms.half(), lid.half()
+
             # Zero the parameter gradients
             optimizer.zero_grad()
 
@@ -100,15 +107,20 @@ def train_model(network, train_loader, optimizer, criterion, epochs):
             pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
 
             # Reconstruct the point cloud
-            reconstructed_pcd = reconstruct_image(pred_alb * pred_shd)
-
+            reconstructed_pcd = reconstruct_image(pred_alb, pred_shd)
             # Compute loss
-            loss = criterion(reconstructed_pcd, img[:, 3:]) 
+            # img_color  = torch.clamp(img[:,3:6], 0.00001, 1)
+            loss = criterion(reconstructed_pcd, img[:,3:6]) 
             loss.backward()
+
             optimizer.step()
 
             running_loss += loss.item()
 
+            wandb.log({"batch_loss": loss.item()})
+
+        epoch_loss = running_loss / len(train_loader)
+        wandb.log({"epoch_loss": epoch_loss, "epoch": epoch})
         print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_loader)}")
 
 def setup_network():
@@ -157,15 +169,23 @@ def main_train():
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train for')
-    parser.add_argument('--batch_size', type=int, default=4, help='input batch size')
+    parser.add_argument('--batch_size', type=int, default=2, help='input batch size')
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
-    parser.add_argument('--path_to_pc', type=str, default='./Data/pcd/pcd_from_laz_with_i_0.1/', help='path to test data')
-    parser.add_argument('--path_to_nm', type=str, default='./Data/gts/nm_from_laz_0.1/', help='path to test data')
-    parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
+    parser.add_argument('--path_to_pc', type=str, default='./Data/pcd/pcd_from_laz_with_i_0.2/', help='path to test data')
+    parser.add_argument('--path_to_nm', type=str, default='./Data/gts/nm_from_laz_0.2/', help='path to test data')
+    parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
     parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/ft_intrinsic.pth', help='path to save the trained model')
     opt = parser.parse_args()
 
+    # Initialize wandb
+    wandb.init(project="iid_pc", config={
+        "epochs": opt.epochs,
+        "batch_size": opt.batch_size,
+        "learning_rate": opt.lr,
+        # Add other hyperparameters or configuration details here
+    })
+    config = wandb.config
     # Set the GPU
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 
@@ -173,20 +193,23 @@ def main_train():
     dataset = PcdIID_Recon(opt.path_to_pc, opt.path_to_nm, 
                            train=True)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, 
-                                             shuffle=True, num_workers=opt.workers, drop_last=True)
+                                             shuffle=False, num_workers=opt.workers, 
+                                             collate_fn=custom_collate_fn, drop_last=True)
 
     # Initialize the network
     network = setup_network()
+    network = network.half()
 
     # Define the loss function and optimizer
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(network.parameters(), lr=opt.lr)
+    optimizer = optim.SGD(network.parameters(), lr=opt.lr)
 
     # Start the training
     train_model(network, dataloader, optimizer, criterion, opt.epochs)
 
     # Save the trained model
-    torch.save(network.state_dict(), save_model_path)
+    torch.save(network.state_dict(), opt.save_model_path)
+    wandb.save(save_model_path)
 
 if __name__ == "__main__":
     main_train()

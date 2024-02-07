@@ -85,7 +85,7 @@ class PcdIID_Recon(data.Dataset):
         norms = norms.transpose(1, 0)
         norms = torch.from_numpy(norms.copy()).float()
         pcd = torch.from_numpy(pcd.copy()).float()
-        lid = torch.from_numpy(lid.copy()).float()
+        lid = torch.from_numpy(lid.copy()).unsqueeze(0).float()
 
         return pcd, norms, lid, fnn
 

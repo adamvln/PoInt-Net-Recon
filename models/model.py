@@ -20,6 +20,7 @@ class STN3d(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 36)
         self.relu = nn.ReLU()
+        # self.relu = nn.SiLU()
 
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(128)
@@ -32,7 +33,8 @@ class STN3d(nn.Module):
         batchsize = x.size()[0]
         x = F.relu(self.bn1(self.conv1(x)))
         x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
+        x = self.conv3(x)
+        x = F.relu(self.bn3(x))
         x = torch.max(x, 2, keepdim=True)[0]
         # print(x.shape)
         x = x.view(-1, 1024)
@@ -49,7 +51,6 @@ class STN3d(nn.Module):
         x = x + iden
         x = x.view(-1, 6, 6)
         return x
-
 
 
 class PointNetfeat(nn.Module):
@@ -73,7 +74,10 @@ class PointNetfeat(nn.Module):
         # print('trans.shape',trans.shape)
         x = x.transpose(2, 1)
         # print('x.shape',x.shape)
+        x = x.float()
+        trans = trans.float()
         x = torch.bmm(x, trans)
+        x = x.half()
         x = x.transpose(2, 1)
         x = F.relu(self.bn1(self.conv1(x)))
 
@@ -110,7 +114,6 @@ class PointNet_IID(nn.Module):
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
         self.bn3 = nn.BatchNorm1d(128)
-
     def forward(self, x):
         batchsize = x.size()[0]
         n_pts = x.size()[2]
@@ -120,6 +123,8 @@ class PointNet_IID(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
         x = self.conv4(x)
         x = F.relu(x)
+
+        # x = x.transpose(1, 2)
         # x = x.transpose(2,1).contiguous()
         # x = F.log_softmax(x.view(-1,self.k), dim=-1)
         # x = x.view(batchsize, n_pts, self.k)
@@ -221,8 +226,6 @@ class PoInt_Net(nn.Module):
         Albedo  AlbedoNet
     para: ShaderOnly: check shader
     Note: the paras are pre-train and loaded
-
-    
     """
     def __init__(self, k = 2,feature_transform=False):
         super(PoInt_Net, self).__init__()
@@ -233,7 +236,7 @@ class PoInt_Net(nn.Module):
     def forward(self,x,img_normal,point_pos_in=1,ShaderOnly=False):
         alb_pred,_,_ = self.albedoNet(x)
         _,_,final_shd = self.shadingnet(x,img_normal,point_pos_in=1,ShaderOnly=False)
-        return final_shd,alb_pred
+        return final_shd, alb_pred
 
 class PoInt_Net_only_alb(nn.Module):
     """
@@ -243,14 +246,11 @@ class PoInt_Net_only_alb(nn.Module):
         Albedo  AlbedoNet
     para: ShaderOnly: check shader
     Note: the paras are pre-train and loaded
-
-    
     """
     def __init__(self, k = 2,feature_transform=False):
         super(PoInt_Net_only_alb, self).__init__()
         self.shadingnet = PointNet_IID_shd_2(k,feature_transform=False)
         self.albedoNet = PointNet_IID(k,feature_transform=False)
-
     
     def forward(self,x,point_pos_in=1,ShaderOnly=False):
         alb_pred,_,_ = self.albedoNet(x)

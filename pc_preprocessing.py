@@ -142,13 +142,13 @@ def process_and_normalize_normals(input_folder, output_folder, search_param):
             print(f"Processed and saved normalized normals for {np_file_path} in {output_folder}")
 
 # Example usage
-def main(input_folder, output_folder, output_normal, voxel_size = 0.2):
+def main(input_folder, output_folder, output_normal, voxel_size = 0.3):
     process_laz_files(input_folder, output_folder)
     process_point_clouds(output_folder, voxel_size)
     process_and_normalize_normals(output_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
 
 if __name__ == "__main__":
     input_folder = 'Data/laz_pc'
-    output_folder = 'Data/pcd/pcd_from_laz_with_i_0.2'
-    output_normal = 'Data/gts/nm_from_laz_0.2'
+    output_folder = 'Data/pcd/pcd_from_laz_with_i_0.3'
+    output_normal = 'Data/gts/nm_from_laz_0.3'
     main(input_folder, output_folder, output_normal)

@@ -74,10 +74,10 @@ class PointNetfeat(nn.Module):
         # print('trans.shape',trans.shape)
         x = x.transpose(2, 1)
         # print('x.shape',x.shape)
-        x = x.float()
-        trans = trans.float()
+        # x = x.float()
+        # trans = trans.float()
         x = torch.bmm(x, trans)
-        x = x.half()
+        # x = x.half()
         x = x.transpose(2, 1)
         x = F.relu(self.bn1(self.conv1(x)))
 

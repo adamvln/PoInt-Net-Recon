@@ -1,5 +1,6 @@
 import numpy as np
 import torch 
+
 def reconstruct_image(albedo, shading):
     """
     Reconstruct an image by element-wise multiplication of albedo and shading images.
@@ -15,6 +16,39 @@ def reconstruct_image(albedo, shading):
     # Assuming the images are normalized (0 to 1), if they are not, adjust accordingly
     reconstructed = torch.clamp(reconstructed, 0.00001, 1)
     return reconstructed
+
+def point_cloud_to_grayscale_torch(rgb_values):
+
+        """
+        Convert RGB values of a point cloud to grayscale using PyTorch for a batched input.
+
+        Parameters:
+        rgb_values (torch.Tensor): A tensor of shape (batch_size, 3, N) where N is the number of points.
+                                   Each point is represented as (r, g, b) across the batch.
+
+        Returns:
+        torch.Tensor: Grayscale values of the point cloud of shape (batch_size, 1, N).
+        """
+        # Ensure input is a PyTorch tensor and has the correct shape (3D tensor for batched input)
+        if not isinstance(rgb_values, torch.Tensor):
+            rgb_values = torch.tensor(rgb_values, dtype=torch.float32)
+
+        # Ensure the tensor is on the correct device (e.g., CUDA)
+        rgb_values = rgb_values.to("cuda")
+
+        # Check if the input tensor is 3D
+        if rgb_values.dim() != 3:
+            raise ValueError("Input tensor should be a 3D tensor with shape [batch_size, channels, points]")
+        
+        # Define weights for luminosity method and adjust for batch operation
+        weights = torch.tensor([0.21, 0.72, 0.07], dtype=torch.float32, device=rgb_values.device)
+        weights = weights.view(1, 3, 1)  # Reshape for broadcasting across the batch and points
+        # Calculate grayscale values using luminosity method
+        grayscale_values = torch.mul(rgb_values, weights).sum(dim=1, keepdim=True)
+        # Squeeze the singleton dimension to match expected output shape
+        grayscale_values = grayscale_values.squeeze(1)
+        return grayscale_values
+
 
 def pad_point_cloud(tensor, max_points):
     """

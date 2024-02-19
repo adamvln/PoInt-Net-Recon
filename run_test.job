@@ -1,0 +1,27 @@
+#!/bin/bash
+
+#SBATCH --job-name=test_model
+#SBATCH --time=01:00:00  # Adjust as needed
+#SBATCH --mem=12G         # Adjust as needed
+#SBATCH --cpus-per-task=1
+#SBATCH --gpus=1
+#SBATCH -p gpu          # Adjust partition as needed
+#SBATCH --output=/gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/log/jobs_outputs/test_recon_with_lidar_%j.txt
+
+# Load necessary modules (if required)
+module load 2022
+module load Anaconda3/2022.05
+module load PyTorch/1.12.0-foss-2022a-CUDA-11.7.0
+module load torchvision/0.13.1-foss-2022a-CUDA-11.7.0
+
+# Activate the tf-gpu environment
+source activate bane_of_env
+
+# Navigate to the script directory
+cd /gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/
+
+# Run the script
+python test.py 
+
+# Deactivate environment
+conda deactivate

@@ -21,7 +21,7 @@ source activate bane_of_env
 cd /gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/
 
 # Run the script
-python test.py --lr 0.00001
+python train.py --lr 0.001 --include_loss_recon False --include_loss_smoothness True
 
 # Deactivate environment
 conda deactivate

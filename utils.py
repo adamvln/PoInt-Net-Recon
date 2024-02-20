@@ -1,7 +1,5 @@
 import numpy as np
 import torch 
-import re 
-import open3d as o3d
 from tqdm import tqdm 
 import os 
 
@@ -98,59 +96,64 @@ def custom_collate_fn(batch):
     # Default collate should work now
     return torch.utils.data.dataloader.default_collate(new_batch)
 
-def detect_edge_points(point_cloud_file_path, save_path, save_mask=True):
+def compute_luminance_and_chromaticity_batched(point_clouds):
+    # Assume point_clouds is a tensor of shape (B, 6, N) where B is the batch size and the second dimension contains XYZRGB
+    rgb = point_clouds[:, 3:, :]  # Extract the RGB values, assuming they are the last three channels
+    # Normalize RGB values to [0, 1] if they are in [0, 255]
+    if torch.max(rgb) > 1.0:
+        rgb = rgb / 255.0
+
+    # Compute luminance
+    luminance = 0.2126 * rgb[:, 0, :] + 0.7152 * rgb[:, 1, :] + 0.0722 * rgb[:, 2, :]
+    
+    # Compute chromaticity
+    chroma_sum = torch.sum(rgb, dim=1, keepdim=True)
+    chromaticity_x = rgb[:, 0, :] / (chroma_sum + 1e-8).squeeze(1)  # Squeeze to remove the singleton dimension
+    chromaticity_y = rgb[:, 1, :] / (chroma_sum + 1e-8).squeeze(1)
+    
+    # Stack the chromaticity coordinates for each point across the batch
+    chromaticity = torch.stack((chromaticity_x, chromaticity_y), dim=1)
+    
+    # The shape of luminance will be (B, N)
+    # The shape of chromaticity will be (B, 2, N)
+    return luminance, chromaticity
+
+def compute_weights(ch_i, ch_j, lum_i, lum_j):
+    # Compute the squared chromaticity difference for x and y, and then sum them
+    chromaticity_difference_squared = torch.sum((ch_i - ch_j) ** 2)
+
+    # Compute the chromaticity difference
+    chromaticity_difference = torch.sqrt(chromaticity_difference_squared)
+
+    # Compute the weight using the provided formula
+    # Note: No need to calculate max difference since it's for individual points
+    weight = (1 - chromaticity_difference) * torch.sqrt(lum_i * lum_j)
+    
+    return weight
+
+def compute_weights_vectorized(ch_i, ch_j, lum_i, lum_j):
     """
-    Detects edge points in a point cloud and saves the binary mask.
+    Compute the weights based on chromaticity and luminance differences using vectorized operations.
 
     Parameters:
-    point_cloud_file_path (str): Path to the numpy file containing the point cloud.
-    save_path (str): Directory where the binary mask will be saved.
-    voxel_size (float): The downsampling voxel size.
-    save_mask (bool): Whether to save the binary mask to a file.
+    ch_i (torch.Tensor): Chromaticity of points i with shape [2, N, n_neighbors].
+    ch_j (torch.Tensor): Chromaticity of points j with the same shape as ch_i.
+    lum_i (torch.Tensor): Luminance of points i with shape [N, n_neighbors].
+    lum_j (torch.Tensor): Luminance of points j with the same shape as lum_i.
 
     Returns:
-    np.array: Binary mask indicating edge points.
+    torch.Tensor: Weights for each pair of points with shape [N, n_neighbors].
     """
-    # Load point cloud data from the numpy file
-    point_cloud_np = np.load(point_cloud_file_path)
-    point_cloud_np = point_cloud_np[:, :3].astype(np.float64)
+    # Compute the squared chromaticity differences for x and y, and then sum them
+    chromaticity_difference_squared = torch.sum((ch_i - ch_j) ** 2, dim=0)
 
-    # Convert numpy array to Open3D point cloud
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(point_cloud_np)
+    # Compute the chromaticity difference
+    chromaticity_difference = torch.sqrt(chromaticity_difference_squared)
 
-    # Compute the normals of the point cloud
-    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    # Find the maximum chromaticity difference for normalization
+    max_chromaticity_difference = chromaticity_difference.max(dim=1, keepdim=True).values
 
-    # Create a KDTree for the point cloud
-    pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+    # Compute the weights using the provided formula, avoiding division by zero
+    weights = (1 - chromaticity_difference / (max_chromaticity_difference + 1e-8)) * torch.sqrt(lum_i * lum_j)
 
-    # Detect edge points based on the variation of normals
-    normals = np.asarray(pcd.normals)
-    edge_indices = []
-    threshold = 0.9  # Threshold for edge detection, adjust as needed
-
-    for i in tqdm(range(len(normals))):
-        k, idx, _ = pcd_tree.search_radius_vector_3d(pcd.points[i], 0.1)
-        local_normals = normals[idx[1:], :]
-        cos_similarity = np.dot(local_normals, normals[i])
-
-        if np.any(cos_similarity < threshold):
-            edge_indices.append(i)
-
-    # Create a binary mask
-    binary_mask = np.zeros(len(pcd.points), dtype=int)
-    binary_mask[edge_indices] = 1
-
-    if save_mask:
-        # Extract point cloud number from file name
-        pc_number = os.path.basename(point_cloud_file_path).split('.')[0].split('_')[1:]
-        pc_number = '_'.join(pc_number)
-        voxel_size = re.findall(r"\d+\.\d+", input_string)[0] if re.findall(r"\d+\.\d+", input_string) else None
-        mask_filename = f'final_{pc_number}_{voxel_size}_edge_mask.npy'
-        mask_filepath = os.path.join(save_path, mask_filename)
-        np.save(mask_filepath, binary_mask)
-
-    return binary_mask
-
-detect_edge_points("Data/pcd/pcd_from_laz_with_i_0.3/final_2448_9707.npy", "Data/edge_masks")
+    return weights

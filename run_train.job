@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --gpus=1
 #SBATCH -p gpu          # Adjust partition as needed
-#SBATCH --output=/gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/log/jobs_outputs/test_recon_with_lidar_%j.txt
+#SBATCH --output=/gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/log/jobs_outputs/test_smoothness_%j.txt
 
 # Load necessary modules (if required)
 module load 2022
@@ -21,7 +21,7 @@ source activate bane_of_env
 cd /gpfs/home4/avalin/CityThesis/PoInt-Net-Recon/
 
 # Run the script
-python train.py --lr 0.001 --include_loss_recon False --include_loss_smoothness True
+python train.py --lr 0.001 --include_chroma_weights True --include_loss_smoothness True
 
 # Deactivate environment
 conda deactivate

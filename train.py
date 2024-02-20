@@ -6,15 +6,15 @@ import torch
 import torch.utils.data
 import torch.nn as nn
 import torch.optim as optim
-from tqdm import tqdm
 import time
 import sys
 import wandb
+from tqdm import tqdm
+from sklearn.neighbors import NearestNeighbors
 
 torch.backends.cudnn.enabled = False
 torch.backends.cudnn.deterministic = True
 torch.cuda.empty_cache()
-# sys.path.append('./models/')
 
 from utils import *
 from models.model import *
@@ -38,39 +38,62 @@ def torch2img(tensor, h, w):
     img = img * 255.
     return img
 
-def smoothness_loss(pred_alb, n_neighbors):
+def smoothness_loss(pred_alb, n_neighbors, include_chroma_weights=False, luminance=None, chromaticity=None):
     """
     Calculate the smoothness loss for the predicted albedo.
 
     Parameters:
     pred_alb (torch.Tensor): Predicted albedo tensor.
     n_neighbors (int): Number of neighbors to consider for each point.
+    include_chroma_weights (bool): Flag to include chromaticity-based weights in the loss.
+    luminance (torch.Tensor): Luminance values for each point.
+    chromaticity (torch.Tensor): Chromaticity values for each point.
 
     Returns:
     torch.Tensor: Calculated smoothness loss.
     """
-    # Ensure pred_alb is detached and moved to CPU for KNN
-    pred_alb_np = pred_alb.detach().cpu().numpy()
 
-    # Apply KNN to find n_neighbors for each point
-    neigh = NearestNeighbors(n_neighbors=n_neighbors)
-    neigh.fit(pred_alb_np)
-    distances, indices = neigh.kneighbors(pred_alb_np)
+    batch_size, num_channels, num_points = pred_alb.shape
+    total_loss = 0.0
 
-    # Compute smoothness loss
-    loss = 0.0
-    for i in range(pred_alb_np.shape[0]):
-        for j in indices[i]:
-            loss += np.linalg.norm(pred_alb_np[i] - pred_alb_np[j])**2
+    for b in range(batch_size):
+        # Reshape the tensor to two dimensions [num_points, num_channels] for NearestNeighbors
+        pred_alb_np = pred_alb[b].detach().cpu().numpy().T  # Transpose to get shape [num_points, num_channels]
+        # Apply KNN to find n_neighbors for each point
+        neigh = NearestNeighbors(n_neighbors=n_neighbors+1)  # +1 because point itself is included
+        neigh.fit(pred_alb_np)
+        distances, indices = neigh.kneighbors(pred_alb_np)
+        
+        # Vectorized computation of differences and norms
+        diffs = pred_alb_np[indices[:, 1:]] - pred_alb_np[:, np.newaxis]
+        norms = np.linalg.norm(diffs, axis=2)
+
+        # Compute weights if needed
+        if include_chroma_weights:
+            # Prepare batched chromaticity and luminance for vectorized computation
+            ch_i = chromaticity[b, :, :, np.newaxis]  # Shape: [2, N, 1]
+            ch_j = chromaticity[b, :, indices[:, 1:]] # Shape: [2, N, n_neighbors]
+            lum_i = luminance[b, :, np.newaxis]       # Shape: [N, 1]
+            lum_j = luminance[b, indices[:, 1:]]      # Shape: [N, n_neighbors]
+            # Compute weights for each point and its neighbors
+            weights = compute_weights_vectorized(ch_i, ch_j, lum_i, lum_j)
+        else:
+            weights = np.ones_like(norms)
+
+        # Compute the weighted smoothness loss for this point cloud
+        norms_tensor = torch.tensor(norms, device=weights.device)
+        weighted_norms = weights * norms_tensor**2
+        batch_loss = torch.sum(weighted_norms) / num_points
+        total_loss += batch_loss
 
     # Normalize the smoothness loss by the number of points
-    loss /= pred_alb_np.shape[0]
+    total_loss /= batch_size
 
     # Convert the loss back to a torch tensor and return
-    return torch.tensor(loss, dtype=torch.float32, device=pred_alb.device)
+    return total_loss
 
 def train_model(network, train_loader, optimizer, criterion, epochs, s1, s2,
-         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_smoothness = False, loss_lid_coeff=1.0, smoothness_loss_coeff = 1.0):
+         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_smoothness = False, include_chroma_weights = False, loss_lid_coeff=1.0, loss_smoothness_coeff = 1.0):
     """
     Train the PoIntNet model.
 
@@ -88,13 +111,19 @@ def train_model(network, train_loader, optimizer, criterion, epochs, s1, s2,
     """
     network.train()
     print("The lidar loss coefficient is {}".format(loss_lid_coeff))
-    print("The smoothness loss coefficient is {}".format(smoothness_loss_coeff))
+    print("The smoothness loss coefficient is {}".format(loss_smoothness_coeff))
     for epoch in range(epochs):
         running_loss = 0.0
+        print("NEW EPOCH")
         for data in tqdm(train_loader):
             # Load the data and transfer to GPU
             img, norms, lid, fn = data
             img, norms, lid = img.cuda(), norms.cuda(), lid.cuda()
+            # img os size (B,6,N)
+
+            if include_chroma_weights:
+                #lum of size (B,1,N) and chroma of size (B,2,N)
+                luminance, chromaticity = compute_luminance_and_chromaticity_batched(img)
 
             # Zero the parameter gradients
             optimizer.zero_grad()
@@ -117,7 +146,7 @@ def train_model(network, train_loader, optimizer, criterion, epochs, s1, s2,
                 loss += loss_lid_coeff * loss_lid.mean()
             
             if include_loss_smoothness:
-                loss += smoothness_loss_coeff * smoothness_loss(pred_alb, smoothness_loss_coeff)
+                loss += loss_smoothness_coeff * smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
                 
             loss.backward()
             optimizer.step()
@@ -176,6 +205,7 @@ def main_train():
     
     parser.add_argument('--loss_lid_coeff', type=float, default=1.0, help='coefficient to scale the impact of loss_lid')
     parser.add_argument('--loss_smoothness_coeff', type=float, default=1.0, help='coefficient to scale the impact of smoothness loss')
+    parser.add_argument('--include_chroma_weights', type=bool, default=False, help='whether to include chroma weights in the total loss computation')
     opt = parser.parse_args()
 
     # Format the save_model_path with the learning rate
@@ -211,7 +241,6 @@ def main_train():
     s2 = nn.Parameter(torch.tensor([wandb.config.s2_init], device='cuda'))
     b1 = nn.Parameter(torch.tensor([wandb.config.b1_init], device='cuda'))
     b2 = nn.Parameter(torch.tensor([wandb.config.b2_init], device='cuda'))
-    # network = network.half()
 
     # Define the loss function and optimizer
     criterion = nn.MSELoss()
@@ -220,8 +249,8 @@ def main_train():
         {'params': [s1, s2, b1, b2]}
     ], lr=opt.lr)
 
-    # Start the training
-    train_model(network, dataloader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.include_loss_lid, opt.loss_lid_coeff)
+    # Start the training    
+    train_model(network, dataloader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_smoothness, opt.include_chroma_weights, opt.loss_lid_coeff, opt.loss_smoothness_coeff)
 
     # Save the trained model
     torch.save({

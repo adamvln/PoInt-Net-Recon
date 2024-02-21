@@ -171,28 +171,108 @@ def detect_edge_points(point_cloud_file_path, normals_file_path, save_path, save
 
     # Detect edge points based on the variation of normals
     normals = np.asarray(pcd.normals)
-    edge_indices = []
-    threshold = 0.65  # Threshold for edge detection, adjust as needed
+    edge_indices_0 = []
+    edge_indices_1 = []
+    edge_indices_2 = []
+    edge_indices_3 = []
+    edge_indices_4 = []
+    edge_indices_5 = []
+    edge_indices_6 = []
+    edge_indices_7 = []
+    edge_indices_8 = []
+    edge_indices_9 = []
+    edge_indices_10 = []
+    # threshold = 0.4  # Threshold for edge detection, adjust as needed
 
     for i in range(len(normals)):
         k, idx, _ = pcd_tree.search_radius_vector_3d(pcd.points[i], 0.1)
         local_normals = normals[idx[1:], :]
         cos_similarity = np.dot(local_normals, normals[i])
-        if np.any(cos_similarity < threshold):
-            edge_indices.append(i)
+        #Approcach with mean of cos_similarity, so if the mean of the neighbors normal vectors have a cosine simi
+        #larity less than the threshold, then the point is an edge point	
+        mean_cos_similarity = np.mean(cos_similarity)
+        #[ 0.99981499  0.99885637  0.99905021 ... -0.27847014 -0.27844502 -0.27844502]
+        if mean_cos_similarity < 0:
+            edge_indices_0.append(i)
+        if mean_cos_similarity < 0.1:
+            edge_indices_1.append(i)
+        if mean_cos_similarity < 0.2:
+            edge_indices_2.append(i)
+        if mean_cos_similarity < 0.3:
+            edge_indices_3.append(i)
+        if mean_cos_similarity < 0.4:
+            edge_indices_4.append(i)
+        if mean_cos_similarity < 0.5:
+            edge_indices_5.append(i)
+        if mean_cos_similarity < 0.6:
+            edge_indices_6.append(i)
+        if mean_cos_similarity < 0.7:
+            edge_indices_7.append(i)
+        if mean_cos_similarity < 0.8:
+            edge_indices_8.append(i)
+        if mean_cos_similarity < 0.9:
+            edge_indices_9.append(i)
 
     # Create a binary mask
-    binary_mask = np.zeros(len(pcd.points), dtype=int)
-    binary_mask[edge_indices] = 1
+    binary_mask_0 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_1 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_2 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_3 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_4 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_5 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_6 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_7 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_8 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_9 = np.zeros(len(pcd.points), dtype=int)
+
+    binary_mask_0[edge_indices_0] = 1
+    binary_mask_1[edge_indices_1] = 1
+    binary_mask_2[edge_indices_2] = 1
+    binary_mask_3[edge_indices_3] = 1
+    binary_mask_4[edge_indices_4] = 1
+    binary_mask_5[edge_indices_5] = 1
+    binary_mask_6[edge_indices_6] = 1
+    binary_mask_7[edge_indices_7] = 1
+    binary_mask_8[edge_indices_8] = 1
+    binary_mask_9[edge_indices_9] = 1
 
     if save_mask:
         # Extract point cloud number from file name
         pc_number = os.path.basename(point_cloud_file_path).split('.')[0].split('_')[1:]
         pc_number = '_'.join(pc_number)
         voxel_size = re.findall(r"\d+\.\d+", point_cloud_file_path)[0] if re.findall(r"\d+\.\d+", point_cloud_file_path) else None
-        mask_filename = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_{threshold}.npy'
-        mask_filepath = os.path.join(save_path, mask_filename)
-        np.save(mask_filepath, binary_mask)
+        mask_filename_0 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0}.npy'
+        mask_filename_1 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.1}.npy'
+        mask_filename_2 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.2}.npy'
+        mask_filename_3 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.3}.npy'
+        mask_filename_4 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.4}.npy'
+        mask_filename_5 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.5}.npy'
+        mask_filename_6 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.6}.npy'
+        mask_filename_7 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.7}.npy'
+        mask_filename_8 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.8}.npy'
+        mask_filename_9 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.9}.npy'
+
+        mask_filepath_0 = os.path.join(save_path, mask_filename_0)
+        mask_filepath_1 = os.path.join(save_path, mask_filename_1)
+        mask_filepath_2 = os.path.join(save_path, mask_filename_2)
+        mask_filepath_3 = os.path.join(save_path, mask_filename_3)
+        mask_filepath_4 = os.path.join(save_path, mask_filename_4)
+        mask_filepath_5 = os.path.join(save_path, mask_filename_5)
+        mask_filepath_6 = os.path.join(save_path, mask_filename_6)
+        mask_filepath_7 = os.path.join(save_path, mask_filename_7)
+        mask_filepath_8 = os.path.join(save_path, mask_filename_8)
+        mask_filepath_9 = os.path.join(save_path, mask_filename_9)
+
+        np.save(mask_filepath_0, binary_mask_0)
+        np.save(mask_filepath_1, binary_mask_1)
+        np.save(mask_filepath_2, binary_mask_2)
+        np.save(mask_filepath_3, binary_mask_3)
+        np.save(mask_filepath_4, binary_mask_4)
+        np.save(mask_filepath_5, binary_mask_5)
+        np.save(mask_filepath_6, binary_mask_6)
+        np.save(mask_filepath_7, binary_mask_7)
+        np.save(mask_filepath_8, binary_mask_8)
+        np.save(mask_filepath_9, binary_mask_9)
 
     return binary_mask
 

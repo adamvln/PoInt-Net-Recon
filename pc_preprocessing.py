@@ -11,6 +11,52 @@ import open3d as o3d
 import laspy 
 from scipy.spatial import cKDTree
 import re 
+import shutil
+import random
+
+def split_point_clouds_in_folder(input_folder, output_folder):
+    # Iterate over all files in the input folder
+    for file in os.listdir(input_folder):
+        # Check if the file is a NumPy file
+        if file.endswith('.npy'):
+            file_path = os.path.join(input_folder, file)
+
+            # Load the point cloud from a NumPy file
+            point_cloud = np.load(file_path)
+            # Extract file name and extension
+            base_name = os.path.basename(file_path)
+            name, ext = os.path.splitext(base_name)
+
+            # Parse the original coordinates from the file name
+            coords = name.split('_')
+            xg, yg = int(coords[1]), int(coords[2])
+            # Calculate new dimensions (half of the original)
+            half_x, half_y = 25, 25
+
+            # Iterate and create 4 new point clouds
+            for i in range(2):
+                for j in range(2):
+                    # Calculate new bottom left corner
+                    new_xg = xg * 50 + i * half_x
+                    new_yg = yg * 50 + j * half_y
+                    # Create new file name
+                    new_file_name = f"final_{new_xg}_{new_yg}.npy"
+
+                    # Filter the original point cloud to create a new one
+                    x_min = new_xg * 50
+                    x_max = x_min + half_x * 50
+                    y_min = new_yg * 50
+                    y_max = y_min + half_y * 50
+                    mask = (
+                        (point_cloud[:, 0] >= new_xg ) & (point_cloud[:, 0] < new_xg + 25) &
+                        (point_cloud[:, 1] >= new_yg ) & (point_cloud[:, 1] < new_yg + 25)
+                    )
+                    new_point_cloud = point_cloud[mask]
+                    # Save the new point cloud
+                    new_file_path = os.path.join(output_folder, new_file_name)
+                    np.save(new_file_path, new_point_cloud)
+                    
+
 def process_laz_files(input_folder, output_folder):
     """
     Convert all LAZ files in an input folder to NumPy arrays and save them in an output folder.
@@ -23,12 +69,10 @@ def process_laz_files(input_folder, output_folder):
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
-
     for filename in os.listdir(input_folder):
         if filename.endswith('.laz'):
             laz_file_path = os.path.join(input_folder, filename)
             print(f'Processing {filename}...')
-
             # Read the .laz file
             las = laspy.read(laz_file_path)
             point_cloud_data = np.vstack((las.x, las.y, las.z)).transpose()
@@ -47,6 +91,7 @@ def process_laz_files(input_folder, output_folder):
             output_file_path = os.path.join(output_folder, output_filename)
             np.save(output_file_path, point_cloud_data)
             print(f'Saved NumPy array to {output_file_path}')
+
 
 def process_point_clouds(folder_path, voxel_size):
     """
@@ -172,16 +217,16 @@ def detect_edge_points(point_cloud_file_path, normals_file_path, save_path, save
     # Detect edge points based on the variation of normals
     normals = np.asarray(pcd.normals)
     edge_indices_0 = []
-    edge_indices_1 = []
-    edge_indices_2 = []
-    edge_indices_3 = []
-    edge_indices_4 = []
-    edge_indices_5 = []
-    edge_indices_6 = []
-    edge_indices_7 = []
-    edge_indices_8 = []
-    edge_indices_9 = []
-    edge_indices_10 = []
+    # edge_indices_1 = []
+    # edge_indices_2 = []
+    # edge_indices_3 = []
+    # edge_indices_4 = []
+    # edge_indices_5 = []
+    edge_indices_m1 = []
+    # edge_indices_m2 = []
+    # edge_indices_m3 = []
+    # edge_indices_m4 = []
+    # edge_indices_m5 = []
     # threshold = 0.4  # Threshold for edge detection, adjust as needed
 
     for i in range(len(normals)):
@@ -194,96 +239,117 @@ def detect_edge_points(point_cloud_file_path, normals_file_path, save_path, save
         #[ 0.99981499  0.99885637  0.99905021 ... -0.27847014 -0.27844502 -0.27844502]
         if mean_cos_similarity < 0:
             edge_indices_0.append(i)
-        if mean_cos_similarity < 0.1:
-            edge_indices_1.append(i)
-        if mean_cos_similarity < 0.2:
-            edge_indices_2.append(i)
-        if mean_cos_similarity < 0.3:
-            edge_indices_3.append(i)
-        if mean_cos_similarity < 0.4:
-            edge_indices_4.append(i)
-        if mean_cos_similarity < 0.5:
-            edge_indices_5.append(i)
-        if mean_cos_similarity < 0.6:
-            edge_indices_6.append(i)
-        if mean_cos_similarity < 0.7:
-            edge_indices_7.append(i)
-        if mean_cos_similarity < 0.8:
-            edge_indices_8.append(i)
-        if mean_cos_similarity < 0.9:
-            edge_indices_9.append(i)
+        # if mean_cos_similarity < 0.1:
+        #     edge_indices_1.append(i)
+        # if mean_cos_similarity < 0.2:
+        #     edge_indices_2.append(i)
+        # if mean_cos_similarity < 0.3:
+        #     edge_indices_3.append(i)
+        # if mean_cos_similarity < 0.4:
+        #     edge_indices_4.append(i)
+        # if mean_cos_similarity < 0.5:
+        #     edge_indices_5.append(i)
+        if mean_cos_similarity < -0.1:
+            edge_indices_m1.append(i)
+        # if mean_cos_similarity < -0.2:
+        #     edge_indices_m2.append(i)
+        # if mean_cos_similarity < -0.3:
+        #     edge_indices_m3.append(i)
+        # if mean_cos_similarity < -0.4:
+        #     edge_indices_m4.append(i)
+        # if mean_cos_similarity < -0.5:
+        #     edge_indices_m5.append(i)
 
     # Create a binary mask
     binary_mask_0 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_1 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_2 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_3 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_4 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_5 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_6 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_7 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_8 = np.zeros(len(pcd.points), dtype=int)
-    binary_mask_9 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_1 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_2 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_3 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_4 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_5 = np.zeros(len(pcd.points), dtype=int)
+    binary_mask_m1 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_m2 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_m3 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_m4 = np.zeros(len(pcd.points), dtype=int)
+    # binary_mask_m5 = np.zeros(len(pcd.points), dtype=int)
 
     binary_mask_0[edge_indices_0] = 1
-    binary_mask_1[edge_indices_1] = 1
-    binary_mask_2[edge_indices_2] = 1
-    binary_mask_3[edge_indices_3] = 1
-    binary_mask_4[edge_indices_4] = 1
-    binary_mask_5[edge_indices_5] = 1
-    binary_mask_6[edge_indices_6] = 1
-    binary_mask_7[edge_indices_7] = 1
-    binary_mask_8[edge_indices_8] = 1
-    binary_mask_9[edge_indices_9] = 1
-
+    # binary_mask_1[edge_indices_1] = 1
+    # binary_mask_2[edge_indices_2] = 1
+    # binary_mask_3[edge_indices_3] = 1
+    # binary_mask_4[edge_indices_4] = 1
+    # binary_mask_5[edge_indices_5] = 1
+    binary_mask_m1[edge_indices_m1] = 1
+    # binary_mask_m2[edge_indices_m2] = 1
+    # binary_mask_m3[edge_indices_m3] = 1
+    # binary_mask_m4[edge_indices_m4] = 1
+    # binary_mask_m5[edge_indices_m5] = 1
+    
     if save_mask:
         # Extract point cloud number from file name
         pc_number = os.path.basename(point_cloud_file_path).split('.')[0].split('_')[1:]
         pc_number = '_'.join(pc_number)
         voxel_size = re.findall(r"\d+\.\d+", point_cloud_file_path)[0] if re.findall(r"\d+\.\d+", point_cloud_file_path) else None
-        mask_filename_0 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0}.npy'
-        mask_filename_1 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.1}.npy'
-        mask_filename_2 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.2}.npy'
-        mask_filename_3 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.3}.npy'
-        mask_filename_4 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.4}.npy'
-        mask_filename_5 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.5}.npy'
-        mask_filename_6 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.6}.npy'
-        mask_filename_7 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.7}.npy'
-        mask_filename_8 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.8}.npy'
-        mask_filename_9 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.9}.npy'
+        mask_filename_0 = f'final_{pc_number}_mean_{0}.npy'
+        # mask_filename_1 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.1}.npy'
+        # mask_filename_2 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.2}.npy'
+        # mask_filename_3 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.3}.npy'
+        # mask_filename_4 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.4}.npy'
+        # mask_filename_5 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{0.5}.npy'
+        mask_filename_m1 = f'final_{pc_number}_mean_{-0.1}.npy'
+        # mask_filename_m2 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{-0.2}.npy'
+        # mask_filename_m3 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{-0.3}.npy'
+        # mask_filename_m4 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{-0.4}.npy'
+        # mask_filename_m5 = f'final_{pc_number}_{voxel_size}_edge_mask_threshold_mean_{-0.5}.npy'
 
         mask_filepath_0 = os.path.join(save_path, mask_filename_0)
-        mask_filepath_1 = os.path.join(save_path, mask_filename_1)
-        mask_filepath_2 = os.path.join(save_path, mask_filename_2)
-        mask_filepath_3 = os.path.join(save_path, mask_filename_3)
-        mask_filepath_4 = os.path.join(save_path, mask_filename_4)
-        mask_filepath_5 = os.path.join(save_path, mask_filename_5)
-        mask_filepath_6 = os.path.join(save_path, mask_filename_6)
-        mask_filepath_7 = os.path.join(save_path, mask_filename_7)
-        mask_filepath_8 = os.path.join(save_path, mask_filename_8)
-        mask_filepath_9 = os.path.join(save_path, mask_filename_9)
+        # mask_filepath_1 = os.path.join(save_path, mask_filename_1)
+        # mask_filepath_2 = os.path.join(save_path, mask_filename_2)
+        # mask_filepath_3 = os.path.join(save_path, mask_filename_3)
+        # mask_filepath_4 = os.path.join(save_path, mask_filename_4)
+        # mask_filepath_5 = os.path.join(save_path, mask_filename_5)
+        mask_filepath_m1 = os.path.join(save_path, mask_filename_m1)
+        # mask_filepath_m2 = os.path.join(save_path, mask_filename_m2)
+        # mask_filepath_m3 = os.path.join(save_path, mask_filename_m3)
+        # mask_filepath_m4 = os.path.join(save_path, mask_filename_m4)
+        # mask_filepath_m5 = os.path.join(save_path, mask_filename_m5)
 
         np.save(mask_filepath_0, binary_mask_0)
-        np.save(mask_filepath_1, binary_mask_1)
-        np.save(mask_filepath_2, binary_mask_2)
-        np.save(mask_filepath_3, binary_mask_3)
-        np.save(mask_filepath_4, binary_mask_4)
-        np.save(mask_filepath_5, binary_mask_5)
-        np.save(mask_filepath_6, binary_mask_6)
-        np.save(mask_filepath_7, binary_mask_7)
-        np.save(mask_filepath_8, binary_mask_8)
-        np.save(mask_filepath_9, binary_mask_9)
+        # np.save(mask_filepath_1, binary_mask_1)
+        # np.save(mask_filepath_2, binary_mask_2)
+        # np.save(mask_filepath_3, binary_mask_3)
+        # np.save(mask_filepath_4, binary_mask_4)
+        # np.save(mask_filepath_5, binary_mask_5)
+        np.save(mask_filepath_m1, binary_mask_m1)
+        # np.save(mask_filepath_m2, binary_mask_m2)
+        # np.save(mask_filepath_m3, binary_mask_m3)
+        # np.save(mask_filepath_m4, binary_mask_m4)
+        # np.save(mask_filepath_m5, binary_mask_m5)
 
-    return binary_mask
 
-def main(input_folder, output_folder, output_normal, voxel_size = 0.3):
+def main(input_folder, output_folder, split_folder, output_normal, voxel_size = 0.3):
     process_laz_files(input_folder, output_folder)
-    process_point_clouds(output_folder, voxel_size)
-    process_and_normalize_normals(output_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+    split_point_clouds_in_folder(output_folder, split_folder)
+    process_point_clouds(split_folder, voxel_size)
+    process_and_normalize_normals(split_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+
+def move_files(src_folder, dest_folder, files):
+    for file in files:
+        shutil.move(os.path.join(src_folder, file), os.path.join(dest_folder, file))
 
 if __name__ == "__main__":
     # input_folder = 'Data/laz_pc'
-    # output_folder = 'Data/pcd/pcd_from_laz_with_i_0.2'
-    # output_normal = 'Data/gts/nm_from_laz_0.2'
-    # main(input_folder, output_folder, output_normal)
-    detect_edge_points("Data/pcd/pcd_from_laz_with_i_0.3/final_2448_9707.npy", "Data/gts/nm_from_laz_0.3/final_2448_9707.npy", "Data/edge_masks")
+    # output_folder = 'Data/pcd/pcd_0.3'
+    # split_folder = 'Data/pcd/pcd_split_0.3'
+    # output_normal = 'Data/gts/nm_split_0.3'
+    # main(input_folder, output_folder, split_folder, output_normal)
+    # # input_folder = 'Data/pcd/pcd_from_laz_with_i_0.1'
+    # # normal_folder = 'Data/gts/nm_from_laz_0.1'
+    # for file in os.listdir(split_folder):
+    #     file_path = os.path.join(split_folder, file)
+    #     normal_path = os.path.join(output_normal, file)
+    #     detect_edge_points(file_path, normal_path, "Data/edge_masks/edge_masks_0.3")
+        # break
+        # detect_edge_points("Data/pcd/pcd_from_laz_with_i_0.1/final_2448_9707.npy", "Data/gts/nm_from_laz_0.1/final_2448_9707.npy", "Data/edge_masks")
+
+        # Define the folders

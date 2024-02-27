@@ -38,7 +38,7 @@ def torch2img(tensor, h, w):
     img = img * 255.
     return img
 
-def test_model(network, dataloader, log_path):
+def test_model(network, dataloader, log_path, name_model):
     """
     Perform inference on a dataset using a given network and save the output.
 
@@ -65,8 +65,8 @@ def test_model(network, dataloader, log_path):
             final_alb[:, 3:, :] = pred_alb
             final_shd = img + 0
             final_shd[:, 3:, :] = pred_shd
-            albedo_dir = os.path.join(log_path, 'albedo_estimate_0.1')
-            shading_dir = os.path.join(log_path, 'shading_estimate_0.1')
+            albedo_dir = os.path.join(log_path, 'albedo' + name_model)
+            shading_dir = os.path.join(log_path, 'shading' + name_model)
 
             # Create the directories if they don't exist
             os.makedirs(albedo_dir, exist_ok=True)
@@ -110,8 +110,9 @@ def main_test():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
-    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_from_laz_with_i_0.3/', help='path to test data')
-    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_from_laz_0.3/', help='path to test data')
+    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_split_0.3_val/', help='path to test data')
+    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_split_0.3_val/', help='path to test data')
+    parser.add_argument('--path_to_model', type=str, default='./pre_trained_model/ft_intrinsic_0.1000.pth', help='path to the pre-trained model')
     opt = parser.parse_args()
 
     log_name = 'IID_others_'
@@ -120,15 +121,17 @@ def main_test():
         os.makedirs(log_path)
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 
+    name_model = opt.path_to_model.split('/')[-1].rsplit('.', 1)[0]
+    
     dataset_test = PcdIID_Recon(opt.path_to_test_pc, opt.path_to_test_nm, train=False)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=opt.workers)
 
     print('len_dataset_test:', len(dataset_test))
-    network = setup_network('./pre_trained_model/ft_intrinsic_0.1000.pth')
+    network = setup_network(opt.path_to_model)
     # network = network.half()
     print('Infering.....')
 
-    test_model(network, dataloader_test, log_path)
+    test_model(network, dataloader_test, log_path, name_model)
 
 if __name__ == "__main__":
     main_test()

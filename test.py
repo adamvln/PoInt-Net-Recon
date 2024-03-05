@@ -65,8 +65,8 @@ def test_model(network, dataloader, log_path, name_model):
             final_alb[:, 3:, :] = pred_alb
             final_shd = img + 0
             final_shd[:, 3:, :] = pred_shd
-            albedo_dir = os.path.join(log_path, 'albedo' + name_model)
-            shading_dir = os.path.join(log_path, 'shading' + name_model)
+            albedo_dir = os.path.join(log_path, 'albedo_' + name_model)
+            shading_dir = os.path.join(log_path, 'shading_' + name_model)
 
             # Create the directories if they don't exist
             os.makedirs(albedo_dir, exist_ok=True)
@@ -110,8 +110,8 @@ def main_test():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
-    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_split_0.3_val/', help='path to test data')
-    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_split_0.3_val/', help='path to test data')
+    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_split_0.3_test/', help='path to test data')
+    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_split_0.3_test/', help='path to test data')
     parser.add_argument('--path_to_model', type=str, default='./pre_trained_model/ft_intrinsic_0.1000.pth', help='path to the pre-trained model')
     opt = parser.parse_args()
 

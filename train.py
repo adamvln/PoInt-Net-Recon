@@ -164,6 +164,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
     """
     print("The lidar loss coefficient is {}".format(loss_lid_coeff))
     print("The albedo smoothness loss coefficient is {}".format(loss_alb_smoothness_coeff))
+    print("The shading loss coefficient is {}".format(loss_shading_coeff))
     for epoch in range(epochs):
         network.train()
         running_loss = 0.0
@@ -190,6 +191,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             # Compute loss
             if include_loss_recon:
                 loss += criterion(reconstructed_pcd, img[:,3:6])
+                print(f"loss_shading : {loss}")
             
             if include_loss_lid:
                 epsilon = 1e-8
@@ -199,10 +201,8 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             
             if include_loss_alb_smoothness:
                 loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-            
             if include_loss_shading:
                 loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
-
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -242,10 +242,10 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     val_loss += loss_lid_coeff * loss_lid.mean()
 
                 if include_loss_alb_smoothness:
-                    loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-            
+                    val_loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
+                    
                 if include_loss_shading:
-                    loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
+                    val_loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
                 
                 # Accumulate the validation loss
                 val_running_loss += val_loss.item()
@@ -288,7 +288,7 @@ def main_train():
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train for')
-    parser.add_argument('--batch_size', type=int, default=2, help='input batch size')
+    parser.add_argument('--batch_size', type=int, default=4, help='input batch size')
     parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
 
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
@@ -299,7 +299,7 @@ def main_train():
     parser.add_argument('--path_to_val_pc', type=str, default='./Data/pcd/pcd_split_0.3_val/', help='path to val data')
     parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.3_val/', help='path to val data')
 
-    parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/recon_shading_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
+    parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/shd_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
     
     parser.add_argument('--include_loss_recon', type=bool, default=True, help='whether to include reconstruction loss in the total loss computation')
     parser.add_argument('--include_loss_alb_smoothness', type=bool, default=False, help='whether to include albedo smoothness loss in the total loss computation')
@@ -313,22 +313,47 @@ def main_train():
     
     opt = parser.parse_args()
 
+    extract_substring = lambda fp: fp[fp.rfind("/") + 1:fp.rfind(".")] if fp.rfind("/") != -1 and fp.rfind(".") != -1 and fp.rfind(".") > fp.rfind("/") else ""
+
+    if opt.include_loss_alb_smoothness == True and opt.include_loss_shading == False:
+        opt.save_model_path = f'./pre_trained_model/albedo_only_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+
+    if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == True:
+        opt.save_model_path = f'./pre_trained_model/shading_only_{opt.loss_shading_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+
+    if opt.include_loss_alb_smoothness == True and opt.include_chroma_weights == True:
+        opt.save_model_path = f'./pre_trained_model/albedo_chroma_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+
+    
+    wandb.init(project="iid_pc", name =wandb_name ,config={
+    "epochs": opt.epochs,
+    "batch_size": opt.batch_size,
+    "learning_rate": opt.lr,
+    "loss_lid_coeff" : opt.loss_lid_coeff,
+    "s1_init": 1.0,
+    "s2_init": 1.0,
+    "b1_init": 0.0,
+    "b2_init": 0.0,
+})
     # Format the save_model_path with the learning rate
-    opt.save_model_path = opt.save_model_path.format(lr=opt.lr, loss_shading_coeff=opt.loss_shading_coeff)
+    # opt.save_model_path = opt.save_model_path.format(lr=opt.lr, loss_shading_coeff=opt.loss_shading_coeff)
 
     # Initialize wandb
-    wandb.init(project="iid_pc", name =f"recon_alb_smoothness_{opt.loss_alb_smoothness_coeff}_lr_{opt.lr}" ,config={
-        "epochs": opt.epochs,
-        "batch_size": opt.batch_size,
-        "learning_rate": opt.lr,
-        "loss_lid_coeff" : opt.loss_lid_coeff,
-        "s1_init": 1.0,
-        "s2_init": 1.0,
-        "b1_init": 0.0,
-        "b2_init": 0.0,
-    })
+    # wandb.init(project="iid_pc", name =f"shd_{opt.loss_shading_coeff}_lr_{opt.lr}_bs_{opt.batch_size}" ,config={
+    #     "epochs": opt.epochs,
+    #     "batch_size": opt.batch_size,
+    #     "learning_rate": opt.lr,
+    #     "loss_lid_coeff" : opt.loss_lid_coeff,
+    #     "s1_init": 1.0,
+    #     "s2_init": 1.0,
+    #     "b1_init": 0.0,
+    #     "b2_init": 0.0,
+    # })
 
-    wandb.init(project="iid_pc", name=f"lr_{wandb.config.learning_rate}_batch_{wandb.config.batch_size}")
+    # wandb.init(project="iid_pc", name=f"lr_{wandb.config.learning_rate}_batch_{wandb.config.batch_size}")
     config = wandb.config
     # Set the GPU
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids

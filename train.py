@@ -93,7 +93,7 @@ def alb_smoothness_loss(pred_alb, n_neighbors,binary_mask_file_path = None, incl
         norms_tensor = torch.tensor(norms, device=pred_alb.device)
         weights_tensor = torch.tensor(weights, device=pred_alb.device)
         weighted_norms = weights_tensor * norms_tensor**2
-        batch_loss = torch.sum(weighted_norms) / num_points
+        batch_loss = torch.sum(weighted_norms)
         total_loss += batch_loss
 
     # Normalize the smoothness loss by the number of points
@@ -136,7 +136,7 @@ def shading_loss(pred_shd, img, n_neighbors):
         norms_product = (1 / (1 + norms_rgb)) * norms_shd**2
 
         # Compute shading loss
-        batch_loss = np.sum(norms_product) / num_points
+        batch_loss = np.sum(norms_product)
         total_loss += batch_loss
 
     # Normalize the total loss by the number of batches
@@ -146,7 +146,7 @@ def shading_loss(pred_shd, img, n_neighbors):
     return final_loss
 
 def train_model(network, train_loader, val_loader, optimizer, criterion, epochs, s1, s2,
-         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0):
+         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0):
     """
     Train the PoIntNet model.
 
@@ -164,6 +164,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
     """
     print("The lidar loss coefficient is {}".format(loss_lid_coeff))
     print("The albedo smoothness loss coefficient is {}".format(loss_alb_smoothness_coeff))
+    print("The shading loss coefficient is {}".format(loss_shading_coeff))
     for epoch in range(epochs):
         network.train()
         running_loss = 0.0
@@ -189,7 +190,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             loss = 0
             # Compute loss
             if include_loss_recon:
-                loss += criterion(reconstructed_pcd, img[:,3:6])
+                loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
             
             if include_loss_lid:
                 epsilon = 1e-8
@@ -199,14 +200,16 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             
             if include_loss_alb_smoothness:
                 loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-            
             if include_loss_shading:
                 loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
-
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-
+            for name, parameter in network.named_parameters():
+                if parameter.grad is not None:
+                    print(name,parameter[0:20])
+                    if (parameter.grad == 0).all():
+                        print("Yes")
             # Logging (e.g., with wandb)
             wandb.log({"batch_loss": loss.item()})
 
@@ -233,7 +236,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
 
                 # Compute validation loss
                 if include_loss_recon:
-                    val_loss += criterion(reconstructed_pcd, img[:,3:6])
+                    val_loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
                 
                 if include_loss_lid:
                     epsilon = 1e-8
@@ -242,10 +245,10 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     val_loss += loss_lid_coeff * loss_lid.mean()
 
                 if include_loss_alb_smoothness:
-                    loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-            
+                    val_loss += loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
+                    
                 if include_loss_shading:
-                    loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
+                    val_loss += loss_shading_coeff * shading_loss(pred_shd, img, 10)
                 
                 # Accumulate the validation loss
                 val_running_loss += val_loss.item()
@@ -288,24 +291,25 @@ def main_train():
     # Parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train for')
-    parser.add_argument('--batch_size', type=int, default=2, help='input batch size')
-    parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
+    parser.add_argument('--batch_size', type=int, default=4, help='input batch size')
+    parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
 
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
     
-    parser.add_argument('--path_to_train_pc', type=str, default='./Data/pcd/pcd_split_0.3_train/', help='path to train data')
-    parser.add_argument('--path_to_train_nm', type=str, default='./Data/gts/nm_split_0.3_train/', help='path to train data')
-    parser.add_argument('--path_to_val_pc', type=str, default='./Data/pcd/pcd_split_0.3_val/', help='path to val data')
-    parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.3_val/', help='path to val data')
+    parser.add_argument('--path_to_train_pc', type=str, default='./Data/pcd/pcd_split_0.5_train_test/', help='path to train data')
+    parser.add_argument('--path_to_train_nm', type=str, default='./Data/gts/nm_split_0.5_train_test/', help='path to train data')
+    parser.add_argument('--path_to_val_pc', type=str, default='./Data/pcd/pcd_split_0.5_val/', help='path to val data')
+    parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.5_val/', help='path to val data')
 
-    parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/recon_shading_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
+    parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/shd_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
     
     parser.add_argument('--include_loss_recon', type=bool, default=True, help='whether to include reconstruction loss in the total loss computation')
     parser.add_argument('--include_loss_alb_smoothness', type=bool, default=False, help='whether to include albedo smoothness loss in the total loss computation')
     parser.add_argument('--include_loss_lid', type=bool, default=False, help='whether to include loss_lid in the total loss computation')
     parser.add_argument('--include_loss_shading', type=bool, default=False, help='whether to include shading loss in the total loss computation')
     
+    parser.add_argument('--loss_recon_coeff', type=float, default=1.0, help='coefficient to scale the impact of recon_lid')
     parser.add_argument('--loss_lid_coeff', type=float, default=1.0, help='coefficient to scale the impact of loss_lid')
     parser.add_argument('--loss_alb_smoothness_coeff', type=float, default=1.0, help='coefficient to scale the impact of albedo smoothness loss')
     parser.add_argument('--loss_shading_coeff', type=float, default=1.0, help='coefficient to scale the impact of shading loss')
@@ -313,22 +317,34 @@ def main_train():
     
     opt = parser.parse_args()
 
-    # Format the save_model_path with the learning rate
-    opt.save_model_path = opt.save_model_path.format(lr=opt.lr, loss_shading_coeff=opt.loss_shading_coeff)
+    extract_substring = lambda fp: fp[fp.rfind("/") + 1:fp.rfind(".")] if fp.rfind("/") != -1 and fp.rfind(".") != -1 and fp.rfind(".") > fp.rfind("/") else ""
 
-    # Initialize wandb
-    wandb.init(project="iid_pc", name =f"recon_alb_smoothness_{opt.loss_alb_smoothness_coeff}_lr_{opt.lr}" ,config={
-        "epochs": opt.epochs,
-        "batch_size": opt.batch_size,
-        "learning_rate": opt.lr,
-        "loss_lid_coeff" : opt.loss_lid_coeff,
-        "s1_init": 1.0,
-        "s2_init": 1.0,
-        "b1_init": 0.0,
-        "b2_init": 0.0,
-    })
+    if opt.include_loss_alb_smoothness == True and opt.include_loss_shading == False:
+        opt.save_model_path = f'./pre_trained_model/albedo_only_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
 
-    wandb.init(project="iid_pc", name=f"lr_{wandb.config.learning_rate}_batch_{wandb.config.batch_size}")
+    if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == True:
+        opt.save_model_path = f'./pre_trained_model/shading_only_{opt.loss_shading_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+
+    if opt.include_loss_alb_smoothness == True and opt.include_chroma_weights == True:
+        opt.save_model_path = f'./pre_trained_model/albedo_chroma_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+    else:
+        wandb_name = f'recon_only_{opt.lr}_{opt.batch_size}'
+
+    
+    wandb.init(project="iid_pc", name =wandb_name ,config={
+    "epochs": opt.epochs,
+    "batch_size": opt.batch_size,
+    "learning_rate": opt.lr,
+    "loss_lid_coeff" : opt.loss_lid_coeff,
+    "s1_init": 1.0,
+    "s2_init": 1.0,
+    "b1_init": 0.0,
+    "b2_init": 0.0,
+})
+
     config = wandb.config
     # Set the GPU
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
@@ -341,26 +357,26 @@ def main_train():
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=opt.batch_size, 
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
-
+    print(len(train_loader))
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=opt.batch_size, 
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
     # Initialize the network
     network = setup_network('./pre_trained_model/all_intrinsic.pth')
-    s1 = nn.Parameter(torch.tensor([wandb.config.s1_init], device='cuda'))
-    s2 = nn.Parameter(torch.tensor([wandb.config.s2_init], device='cuda'))
-    b1 = nn.Parameter(torch.tensor([wandb.config.b1_init], device='cuda'))
-    b2 = nn.Parameter(torch.tensor([wandb.config.b2_init], device='cuda'))
+    s1 = nn.Parameter(torch.tensor([1.0], device='cuda'))
+    s2 = nn.Parameter(torch.tensor([1.0], device='cuda'))
+    b1 = nn.Parameter(torch.tensor([0.0], device='cuda'))
+    b2 = nn.Parameter(torch.tensor([0.0], device='cuda'))
 
     # Define the loss function and optimizer
-    criterion = nn.MSELoss()
+    criterion = nn.MSELoss(reduction = 'sum')
     optimizer = optim.SGD([
         {'params': network.parameters()},
         {'params': [s1, s2, b1, b2]}
     ], lr=opt.lr)
 
     # Start the training    
-    train_model(network, train_loader, val_loader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_alb_smoothness, opt.include_loss_shading, opt.include_chroma_weights, opt.loss_lid_coeff, opt.loss_alb_smoothness_coeff, opt.loss_shading_coeff)
+    train_model(network, train_loader, val_loader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_alb_smoothness, opt.include_loss_shading, opt.include_chroma_weights, opt.loss_recon_coeff, opt.loss_lid_coeff, opt.loss_alb_smoothness_coeff, opt.loss_shading_coeff)
 
     # Save the trained model
     torch.save({

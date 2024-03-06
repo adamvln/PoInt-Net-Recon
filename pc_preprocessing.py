@@ -16,6 +16,8 @@ import random
 
 def split_point_clouds_in_folder(input_folder, output_folder):
     # Iterate over all files in the input folder
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
     for file in os.listdir(input_folder):
         # Check if the file is a NumPy file
         if file.endswith('.npy'):
@@ -327,7 +329,7 @@ def detect_edge_points(point_cloud_file_path, normals_file_path, save_path, save
         # np.save(mask_filepath_m5, binary_mask_m5)
 
 
-def main(input_folder, output_folder, split_folder, output_normal, voxel_size = 0.3):
+def main(input_folder, output_folder, split_folder, output_normal, voxel_size = 0.5):
     process_laz_files(input_folder, output_folder)
     split_point_clouds_in_folder(output_folder, split_folder)
     process_point_clouds(split_folder, voxel_size)
@@ -337,19 +339,80 @@ def move_files(src_folder, dest_folder, files):
     for file in files:
         shutil.move(os.path.join(src_folder, file), os.path.join(dest_folder, file))
 
-if __name__ == "__main__":
-    # input_folder = 'Data/laz_pc'
-    # output_folder = 'Data/pcd/pcd_0.3'
-    # split_folder = 'Data/pcd/pcd_split_0.3'
-    # output_normal = 'Data/gts/nm_split_0.3'
-    # main(input_folder, output_folder, split_folder, output_normal)
-    # # input_folder = 'Data/pcd/pcd_from_laz_with_i_0.1'
-    # # normal_folder = 'Data/gts/nm_from_laz_0.1'
-    # for file in os.listdir(split_folder):
-    #     file_path = os.path.join(split_folder, file)
-    #     normal_path = os.path.join(output_normal, file)
-    #     detect_edge_points(file_path, normal_path, "Data/edge_masks/edge_masks_0.3")
-        # break
-        # detect_edge_points("Data/pcd/pcd_from_laz_with_i_0.1/final_2448_9707.npy", "Data/gts/nm_from_laz_0.1/final_2448_9707.npy", "Data/edge_masks")
 
-        # Define the folders
+def split_folder(input_folder):
+    if not os.path.exists(input_folder):
+        raise ValueError(f"Folder {input_folder} does not exist")
+
+    # Creating train, val, and test folders
+    for sub_folder in ['train', 'val', 'test']:
+        os.makedirs(os.path.join(input_folder, sub_folder), exist_ok=True)
+
+    # Getting all files
+    all_files = os.listdir(input_folder)
+    random.shuffle(all_files)
+
+    # Calculating split indices
+    total_files = len(all_files)
+    train_split_index = int(0.8 * total_files)
+    val_split_index = train_split_index + int(0.1 * total_files)
+
+    # Distributing files
+    for i, file in enumerate(all_files):
+        if file in ['train', 'val', 'test']:
+            continue  # Skip the newly created directories
+
+        if i < train_split_index:
+            dest_folder = 'train'
+        elif i < val_split_index:
+            dest_folder = 'val'
+        else:
+            dest_folder = 'test'
+
+        # Moving file to the appropriate folder
+        shutil.move(os.path.join(input_folder, file), os.path.join(input_folder, dest_folder, file))
+
+if __name__ == "__main__":
+    input_folder = 'Data/laz_pc'
+    output_folder = 'Data/pcd/pcd_0.4'
+    split_folder = 'Data/pcd/pcd_split_0.4'
+    output_normal = 'Data/gts/nm_split_0.4'
+    main(input_folder, output_folder, split_folder, output_normal)
+    os.rename(split_folder, 'Data/pcd/pcd_split_0.4_train') 
+    os.rename(output_normal, 'Data/gts/nm_split_0.4_train')
+    # Define the folders
+    base_folder = 'Data/'
+    pcd_train = 'Data/pcd/pcd_split_0.4_train'  # Change this to your base directory
+
+    nm_train = 'Data/gts/nm_split_0.4_train'
+
+    pcd_val = os.path.join(base_folder, 'pcd/pcd_split_0.4_val')
+    if not os.path.exists(pcd_val):
+        os.makedirs(pcd_val)
+    nm_val = os.path.join(base_folder, 'gts/nm_split_0.4_val')
+    if not os.path.exists(nm_val):
+        os.makedirs(nm_val)
+    pcd_test = os.path.join(base_folder, 'pcd/pcd_split_0.4_test')
+    if not os.path.exists(pcd_test):
+        os.makedirs(pcd_test)
+    nm_test = os.path.join(base_folder, 'gts/nm_split_0.4_test')
+    if not os.path.exists(nm_test):
+        os.makedirs(nm_test)
+
+
+
+    # List all files in the pcd_train folder
+    files = [f for f in os.listdir(pcd_train) if os.path.isfile(os.path.join (pcd_train, f))]
+    random.shuffle(files)
+
+    # Calculate 10% of the total number of files
+    num_files_to_move = len(files) // 10
+
+    # Move 10% of files to val and test folders for both pcd and nm
+    move_files(pcd_train, pcd_val, files[:num_files_to_move])
+    move_files(pcd_train, pcd_test, files[num_files_to_move:2*num_files_to_move])
+    move_files(nm_train, nm_val, files[:num_files_to_move])
+    move_files(nm_train, nm_test, files[num_files_to_move:2*num_files_to_move])
+
+
+

@@ -14,51 +14,44 @@ import re
 import shutil
 import random
 
-def split_point_clouds_in_folder(input_folder, output_folder):
-    # Iterate over all files in the input folder
+def split_point_clouds_in_folder(input_folder, output_folder, ground_z_threshold):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
+
     for file in os.listdir(input_folder):
-        # Check if the file is a NumPy file
         if file.endswith('.npy'):
             file_path = os.path.join(input_folder, file)
-
-            # Load the point cloud from a NumPy file
             point_cloud = np.load(file_path)
-            # Extract file name and extension
+
+            # Filter for ground points
+            ground_points = point_cloud[point_cloud[:, 2] <= ground_z_threshold]
+
             base_name = os.path.basename(file_path)
             name, ext = os.path.splitext(base_name)
-
-            # Parse the original coordinates from the file name
             coords = name.split('_')
             xg, yg = int(coords[1]), int(coords[2])
-            # Calculate new dimensions (half of the original)
             half_x, half_y = 25, 25
 
-            # Iterate and create 4 new point clouds
             for i in range(2):
                 for j in range(2):
-                    # Calculate new bottom left corner
                     new_xg = xg * 50 + i * half_x
                     new_yg = yg * 50 + j * half_y
-                    # Create new file name
                     new_file_name = f"final_{new_xg}_{new_yg}.npy"
 
-                    # Filter the original point cloud to create a new one
                     x_min = new_xg * 50
                     x_max = x_min + half_x * 50
                     y_min = new_yg * 50
                     y_max = y_min + half_y * 50
+
                     mask = (
-                        (point_cloud[:, 0] >= new_xg ) & (point_cloud[:, 0] < new_xg + 25) &
-                        (point_cloud[:, 1] >= new_yg ) & (point_cloud[:, 1] < new_yg + 25)
+                        (ground_points[:, 0] >= new_xg) & (ground_points[:, 0] < new_xg + 25) &
+                        (ground_points[:, 1] >= new_yg) & (ground_points[:, 1] < new_yg + 25)
                     )
-                    new_point_cloud = point_cloud[mask]
-                    # Save the new point cloud
+                    new_point_cloud = ground_points[mask]
+
                     new_file_path = os.path.join(output_folder, new_file_name)
                     np.save(new_file_path, new_point_cloud)
                     
-
 def process_laz_files(input_folder, output_folder):
     """
     Convert all LAZ files in an input folder to NumPy arrays and save them in an output folder.
@@ -94,7 +87,6 @@ def process_laz_files(input_folder, output_folder):
             np.save(output_file_path, point_cloud_data)
             print(f'Saved NumPy array to {output_file_path}')
 
-
 def process_point_clouds(folder_path, voxel_size):
     """
     Process all point cloud files in a given folder to downsample them while 
@@ -111,6 +103,7 @@ def process_point_clouds(folder_path, voxel_size):
         if filename.endswith('.npy'):
             file_path = os.path.join(folder_path, filename)
             pcd_data = np.load(file_path)
+
             print(f'Processing {filename}, original shape: {pcd_data.shape}')
 
             # Normalize color and separate LiDAR data
@@ -141,7 +134,6 @@ def process_point_clouds(folder_path, voxel_size):
 
             # Print and save the downsampled point cloud
             print(f'Downsampled shape: {combined_data.shape}')
-            print(np.max(combined_data[:,:6]))
             output_file = os.path.join(folder_path, filename)
             np.save(output_file, combined_data)
             print(f'Saved processed data to {output_file}')
@@ -328,17 +320,9 @@ def detect_edge_points(point_cloud_file_path, normals_file_path, save_path, save
         # np.save(mask_filepath_m4, binary_mask_m4)
         # np.save(mask_filepath_m5, binary_mask_m5)
 
-
-def main(input_folder, output_folder, split_folder, output_normal, voxel_size = 0.5):
-    process_laz_files(input_folder, output_folder)
-    split_point_clouds_in_folder(output_folder, split_folder)
-    process_point_clouds(split_folder, voxel_size)
-    process_and_normalize_normals(split_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
-
 def move_files(src_folder, dest_folder, files):
     for file in files:
         shutil.move(os.path.join(src_folder, file), os.path.join(dest_folder, file))
-
 
 def split_folder(input_folder):
     if not os.path.exists(input_folder):
@@ -372,34 +356,38 @@ def split_folder(input_folder):
         # Moving file to the appropriate folder
         shutil.move(os.path.join(input_folder, file), os.path.join(input_folder, dest_folder, file))
 
+def main(input_folder, output_folder, split_folder, output_normal, voxel_size = 0.5):
+    process_laz_files(input_folder, output_folder)
+    split_point_clouds_in_folder(output_folder, split_folder, 4)
+    process_point_clouds(split_folder, voxel_size)
+    process_and_normalize_normals(split_folder,output_normal, o3d.geometry.KDTreeSearchParamKNN(30))
+
 if __name__ == "__main__":
     input_folder = 'Data/laz_pc'
-    output_folder = 'Data/pcd/pcd_0.4'
-    split_folder = 'Data/pcd/pcd_split_0.4'
-    output_normal = 'Data/gts/nm_split_0.4'
-    main(input_folder, output_folder, split_folder, output_normal)
-    os.rename(split_folder, 'Data/pcd/pcd_split_0.4_train') 
-    os.rename(output_normal, 'Data/gts/nm_split_0.4_train')
+    output_folder = 'Data/pcd/pcd_0.5'
+    split_folder = 'Data/pcd/pcd_split_0.5'
+    output_normal = 'Data/gts/nm_split_0.5'
+    # main(input_folder, output_folder, split_folder, output_normal)
+    os.rename(split_folder, 'Data/pcd/pcd_split_0.5_train') 
+    os.rename(output_normal, 'Data/gts/nm_split_0.5_train')
     # Define the folders
     base_folder = 'Data/'
-    pcd_train = 'Data/pcd/pcd_split_0.4_train'  # Change this to your base directory
+    pcd_train = 'Data/pcd/pcd_split_0.5_train'  # Change this to your base directory
 
-    nm_train = 'Data/gts/nm_split_0.4_train'
+    nm_train = 'Data/gts/nm_split_0.5_train'
 
-    pcd_val = os.path.join(base_folder, 'pcd/pcd_split_0.4_val')
+    pcd_val = os.path.join(base_folder, 'pcd/pcd_split_0.5_val')
     if not os.path.exists(pcd_val):
         os.makedirs(pcd_val)
-    nm_val = os.path.join(base_folder, 'gts/nm_split_0.4_val')
+    nm_val = os.path.join(base_folder, 'gts/nm_split_0.5_val')
     if not os.path.exists(nm_val):
         os.makedirs(nm_val)
-    pcd_test = os.path.join(base_folder, 'pcd/pcd_split_0.4_test')
+    pcd_test = os.path.join(base_folder, 'pcd/pcd_split_0.5_test')
     if not os.path.exists(pcd_test):
         os.makedirs(pcd_test)
-    nm_test = os.path.join(base_folder, 'gts/nm_split_0.4_test')
+    nm_test = os.path.join(base_folder, 'gts/nm_split_0.5_test')
     if not os.path.exists(nm_test):
         os.makedirs(nm_test)
-
-
 
     # List all files in the pcd_train folder
     files = [f for f in os.listdir(pcd_train) if os.path.isfile(os.path.join (pcd_train, f))]

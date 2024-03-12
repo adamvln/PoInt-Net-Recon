@@ -145,7 +145,7 @@ def shading_loss(pred_shd, img, n_neighbors):
     return final_loss
 
 def train_model(network, train_loader, val_loader, optimizer, criterion, epochs, s1, s2,
-         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False):
+         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False, early_stopping_patience=10, early_stopping_delta=0.001):
     """
     Train the PoIntNet model.
 
@@ -164,6 +164,10 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
     print("The lidar loss coefficient is {}".format(loss_lid_coeff))
     print("The albedo smoothness loss coefficient is {}".format(loss_alb_smoothness_coeff))
     print("The shading loss coefficient is {}".format(loss_shading_coeff))
+    
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
+    
     for epoch in range(epochs):
         start_time = time.time()  # Start the timer
         network.train()
@@ -274,7 +278,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     lid_normalized = lid / 65535.0
                     val_lid_loss = loss_lid_coeff * torch.abs(gray_alb - s1 * lid_normalized - b1) + torch.abs(gray_shd - s2 * (gray_alb/(lid_normalized + epsilon)) - b2)
                     val_lid_loss_c += val_lid_loss.mean()
-                    val_loss += loss_lid.mean()
+                    val_loss += val_lid_loss.mean()
 
                 if include_loss_alb_smoothness:
                     val_alb_loss = loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
@@ -295,6 +299,16 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
         epoch_val_alb_loss = val_running_loss_alb / len(val_loader)
         epoch_val_lid_loss = val_running_loss_lid / len(val_loader)
         epoch_val_shd_loss = val_running_loss_shd / len(val_loader)
+
+        if epoch_val_loss < best_val_loss - early_stopping_delta:
+            best_val_loss = epoch_val_loss
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+        if epochs_without_improvement >= early_stopping_patience:
+            print(f"Early stopping triggered at epoch {epoch+1}")
+            break
 
         # Log validation loss to wandb
         if wandb_activation:
@@ -377,8 +391,12 @@ def main_train():
     if opt.include_loss_alb_smoothness == True and opt.include_chroma_weights == True:
         opt.save_model_path = f'./pre_trained_model/albedo_chroma_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
         wandb_name = extract_substring(opt.save_model_path)
+    
+    if opt.include_loss_lid == True and opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False:
+        opt.save_model_path = f'./pre_trained_model/lid_only_{opt.loss_lid_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
         
-    if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False:
+    if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False and opt.include_loss_lid == False and opt.include_loss_recon == True:
         opt.save_model_path = f'./pre_trained_model/recon_only_{opt.lr:.4f}_{opt.batch_size}.pth'
         wandb_name = f'recon_only_{opt.lr}_{opt.batch_size}'
 
@@ -411,7 +429,7 @@ def main_train():
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
     # Initialize the network
-    network = setup_network('./pre_trained_model/all_intrinsic.pth')
+    network = setup_network('pre_trained_model/all_intrinsic.pth')
     s1 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     s2 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     b1 = nn.Parameter(torch.tensor([0.0], device='cuda'))
@@ -435,6 +453,9 @@ def main_train():
         'b1': b1.item(),
         'b2': b2.item()
     }, opt.save_model_path)
+
+    print("The model was saved at {}".format(opt.save_model_path))
+
     if opt.wandb:
         wandb.save(opt.save_model_path)
         wandb.finish()

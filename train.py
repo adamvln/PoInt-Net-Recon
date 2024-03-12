@@ -223,6 +223,8 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             optimizer.step()
             running_loss += loss.item()
             running_loss_alb += alb_loss_c
+            running_loss_shd += shd_loss_c
+            running_loss_lid += lid_loss_c
             # for name, parameter in network.named_parameters():
             #     if parameter.grad is not None:
             #         print(name)

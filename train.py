@@ -202,12 +202,32 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             # Compute loss
             if include_loss_recon:
                 loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
+                
             if include_loss_lid:
-                epsilon = 1e-8
+                epsilon = 0.00001
                 lid_normalized = lid / 65535.0
-                lid_loss = loss_lid_coeff * torch.abs(gray_alb - s1 * lid_normalized - b1) + torch.abs(gray_shd - s2 * (gray_alb/(lid_normalized + epsilon)) - b2)
-                lid_loss_c += lid_loss.mean()
-                loss += lid_loss.mean()
+                lid_normalized = torch.squeeze(lid_normalized, 1)
+
+                # Create a mask for non-zero lidar intensity points
+                nonzero_mask = lid_normalized != 0
+
+                # Calculate components of lid_loss only for non-zero points
+                gray_alb_diff = torch.abs(gray_alb - s1 * lid_normalized - b1)
+                gray_shd_diff = torch.abs(gray_shd - s2 * (gray_alb / (lid_normalized + epsilon)) - b2)
+
+                # Apply mask
+                gray_alb_diff_masked = gray_alb_diff * nonzero_mask * 10
+                gray_shd_diff_masked = gray_shd_diff * nonzero_mask
+
+                # Combine the masked differences to form the lid_loss
+                lid_loss = loss_lid_coeff * (gray_alb_diff_masked + gray_shd_diff_masked)
+                lid_loss_c += lid_loss.sum()
+
+                # print("The loss is {}".format(loss))
+                # print("Lid loss sum : {}".format(lid_loss.sum()))
+                loss += lid_loss.sum()
+                # print("The loss is {}".format(loss))
+
             
             if include_loss_alb_smoothness:
                 alb_loss = loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
@@ -276,11 +296,29 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     val_loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
                 
                 if include_loss_lid:
-                    epsilon = 1e-8
+                    epsilon = 0.00001
                     lid_normalized = lid / 65535.0
-                    val_lid_loss = loss_lid_coeff * torch.abs(gray_alb - s1 * lid_normalized - b1) + torch.abs(gray_shd - s2 * (gray_alb/(lid_normalized + epsilon)) - b2)
-                    val_lid_loss_c += val_lid_loss.mean()
-                    val_loss += val_lid_loss.mean()
+                    lid_normalized = torch.squeeze(lid_normalized, 1)
+
+                    # Create a mask for non-zero lidar intensity points
+                    nonzero_mask = lid_normalized != 0
+
+                    # Calculate components of lid_loss only for non-zero points
+                    gray_alb_diff = torch.abs(gray_alb - s1 * lid_normalized - b1)
+                    gray_shd_diff = torch.abs(gray_shd - s2 * (gray_alb / (lid_normalized + epsilon)) - b2)
+
+                    # Apply mask
+                    gray_alb_diff_masked = gray_alb_diff * nonzero_mask * 10
+                    gray_shd_diff_masked = gray_shd_diff * nonzero_mask
+
+                    # Combine the masked differences to form the lid_loss
+                    val_lid_loss = loss_lid_coeff * (gray_alb_diff_masked + gray_shd_diff_masked)
+                    val_lid_loss_c += lid_loss.sum()
+
+                    # print("The loss is {}".format(loss))
+                    # print("Lid loss sum : {}".format(lid_loss.sum()))
+                    val_loss += val_lid_loss.sum()
+                    # print("The loss is {}".format(loss))
 
                 if include_loss_alb_smoothness:
                     val_alb_loss = loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
@@ -360,10 +398,10 @@ def main_train():
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
     parser.add_argument('--wandb', type=bool, default=False)
 
-    parser.add_argument('--path_to_train_pc', type=str, default='./Data/pcd/pcd_split_0.4_train/', help='path to train data')
-    parser.add_argument('--path_to_train_nm', type=str, default='./Data/gts/nm_split_0.4_train/', help='path to train data')
-    parser.add_argument('--path_to_val_pc', type=str, default='./Data/pcd/pcd_split_0.4_val/', help='path to val data')
-    parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.4_val/', help='path to val data')
+    parser.add_argument('--path_to_train_pc', type=str, default='./Data/pcd/pcd_split_0.5_train/', help='path to train data')
+    parser.add_argument('--path_to_train_nm', type=str, default='./Data/gts/nm_split_0.5_train/', help='path to train data')
+    parser.add_argument('--path_to_val_pc', type=str, default='./Data/pcd/pcd_split_0.5_val/', help='path to val data')
+    parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.5_val/', help='path to val data')
 
     parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/shd_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
     

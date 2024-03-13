@@ -121,7 +121,7 @@ def main_test():
         os.makedirs(log_path)
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 
-    name_model = opt.path_to_model.split('/')[-1].rsplit('.', 1)[0]
+    name_model = "/".join(opt.path_to_model.split('/')[-2:])
     
     dataset_test = PcdIID_Recon(opt.path_to_test_pc, opt.path_to_test_nm, train=False)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=opt.workers)

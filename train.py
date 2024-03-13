@@ -7,6 +7,7 @@ import torch.utils.data
 import torch.nn as nn
 import torch.optim as optim
 import time
+import datetime
 import sys
 import wandb
 from tqdm import tqdm
@@ -56,9 +57,9 @@ def alb_smoothness_loss(pred_alb, n_neighbors,binary_mask_file_path = None, incl
     batch_size, num_channels, num_points = pred_alb.shape
     total_loss = 0.0
     # Load binary mask if included
-    binary_mask = None
-    if include_binary_mask and binary_mask_file_path:
-        binary_mask = np.load(binary_mask_file_path)
+    # binary_mask = None
+    # if include_binary_mask and binary_mask_file_path:
+    #     binary_mask = np.load(binary_mask_file_path)
 
     for b in range(batch_size):
         # Reshape the tensor to two dimensions [num_points, num_channels] for NearestNeighbors
@@ -145,7 +146,7 @@ def shading_loss(pred_shd, img, n_neighbors):
     return final_loss
 
 def train_model(network, train_loader, val_loader, optimizer, criterion, epochs, s1, s2,
-         b1, b2, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False, early_stopping_patience=10, early_stopping_delta=0.001):
+         b1, b2, save_model_path, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False, early_stopping_patience=10, early_stopping_delta=0.001):
     """
     Train the PoIntNet model.
 
@@ -264,10 +265,27 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             wandb.log({"epoch_alb_loss": epoch_alb_loss, "epoch": epoch})
             wandb.log({"epoch_lid_loss": epoch_lid_loss, "epoch": epoch})
             wandb.log({"epoch_shd_loss": epoch_shd_loss, "epoch": epoch})
+        
         print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Alb Loss: {running_loss_alb/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Lid Loss: {running_loss_lid/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Shd Loss: {running_loss_shd/len(train_loader)}")
+        
+        if (epoch + 1) % 30 == 0:
+            checkpoint_path = f"{save_model_path}_epoch_{epoch + 1}.pth"
+            torch.save({
+                'epoch': epoch + 1,
+                'model_state_dict': network.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                's1': s1,
+                's2': s2,
+                'b1': b1,
+                'b2': b2,
+                'loss': epoch_loss,
+                'val_loss': epoch_val_loss
+            }, checkpoint_path)
+            print(f"Checkpoint saved at epoch {epoch + 1}")
+
         # Validation phase
         network.eval()
         val_running_loss = 0.0
@@ -418,27 +436,31 @@ def main_train():
     
     opt = parser.parse_args()
 
-    extract_substring = lambda fp: fp[fp.rfind("/") + 1:fp.rfind(".")] if fp.rfind("/") != -1 and fp.rfind(".") != -1 and fp.rfind(".") > fp.rfind("/") else ""
+    extract_substring = lambda fp: fp[fp.rfind("/", 0, fp.rfind("/")) + 1:] if fp.count('/') >= 2 else ""
+
+    # Get current date and time
+    current_datetime = datetime.datetime.now()
+    date_time_str = current_datetime.strftime("%Y%m%d_%H%M%S")
 
     if opt.include_loss_alb_smoothness == True and opt.include_loss_shading == False:
-        opt.save_model_path = f'./pre_trained_model/albedo_test_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        opt.save_model_path = f'./pre_trained_model/albedo_only/{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
         wandb_name = extract_substring(opt.save_model_path)
 
     if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == True:
-        opt.save_model_path = f'./pre_trained_model/shading_only_{opt.loss_shading_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        opt.save_model_path = f'./pre_trained_model/shading_only/{opt.loss_shading_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
         wandb_name = extract_substring(opt.save_model_path)
 
     if opt.include_loss_alb_smoothness == True and opt.include_chroma_weights == True:
-        opt.save_model_path = f'./pre_trained_model/albedo_chroma_{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        opt.save_model_path = f'./pre_trained_model/albedo_chroma/{opt.loss_alb_smoothness_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
         wandb_name = extract_substring(opt.save_model_path)
     
     if opt.include_loss_lid == True and opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False:
-        opt.save_model_path = f'./pre_trained_model/lid_only_{opt.loss_lid_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}.pth'
+        opt.save_model_path = f'./pre_trained_model/lid_only/{opt.loss_lid_coeff:4f}_{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
         wandb_name = extract_substring(opt.save_model_path)
         
     if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False and opt.include_loss_lid == False and opt.include_loss_recon == True:
-        opt.save_model_path = f'./pre_trained_model/recon_only_{opt.lr:.4f}_{opt.batch_size}.pth'
-        wandb_name = f'recon_only_{opt.lr}_{opt.batch_size}'
+        opt.save_model_path = f'./pre_trained_model/recon_only/{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
 
     if opt.wandb:
         wandb.init(project="iid_pc", name =wandb_name ,config={
@@ -469,7 +491,7 @@ def main_train():
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
     # Initialize the network
-    network = setup_network('pre_trained_model/all_intrinsic.pth')
+    network = setup_network('pre_trained_model/albedo_test_20.000000_0.0000_4.pth')
     s1 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     s2 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     b1 = nn.Parameter(torch.tensor([0.0], device='cuda'))
@@ -483,7 +505,7 @@ def main_train():
     ], lr=opt.lr)
 
     # Start the training    
-    train_model(network, train_loader, val_loader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_alb_smoothness, opt.include_loss_shading, opt.include_chroma_weights, opt.loss_recon_coeff, opt.loss_lid_coeff, opt.loss_alb_smoothness_coeff, opt.loss_shading_coeff, opt.wandb)
+    train_model(network, train_loader, val_loader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.save_model_path, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_alb_smoothness, opt.include_loss_shading, opt.include_chroma_weights, opt.loss_recon_coeff, opt.loss_lid_coeff, opt.loss_alb_smoothness_coeff, opt.loss_shading_coeff, opt.wandb)
 
     # Save the trained model
     torch.save({

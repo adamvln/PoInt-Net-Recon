@@ -110,8 +110,8 @@ def main_test():
     parser = argparse.ArgumentParser()
     parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
     parser.add_argument('--gpu_ids', type=str, default='0', help='choose GPU')
-    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_split_0.4_test/', help='path to test data')
-    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_split_0.4_test/', help='path to test data')
+    parser.add_argument('--path_to_test_pc', type=str, default='./Data/pcd/pcd_split_0.5_test/', help='path to test data')
+    parser.add_argument('--path_to_test_nm', type=str, default='./Data/gts/nm_split_0.5_test/', help='path to test data')
     parser.add_argument('--path_to_model', type=str, default='./pre_trained_model/ft_intrinsic_0.1000.pth', help='path to the pre-trained model')
     opt = parser.parse_args()
 
@@ -121,7 +121,9 @@ def main_test():
         os.makedirs(log_path)
     os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_ids
 
-    name_model = "/".join(opt.path_to_model.split('/')[-2:])
+    path_parts = opt.path_to_model.split('/')
+    name_model = '/'.join(path_parts[-2:]).rsplit('.', 1)[0]
+
     
     dataset_test = PcdIID_Recon(opt.path_to_test_pc, opt.path_to_test_nm, train=False)
     dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=1, shuffle=False, num_workers=opt.workers)

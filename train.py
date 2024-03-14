@@ -74,7 +74,7 @@ def alb_smoothness_loss(pred_alb, n_neighbors,binary_mask_file_path = None, incl
         norms = np.linalg.norm(diffs, axis=2)
 
         # Compute weights if needed
-        if include_chroma_weights:
+        if include_chroma_weights == True:
             # Prepare batched chromaticity and luminance for vectorized computation
             ch_i = chromaticity[b, :, :, np.newaxis]  # Shape: [2, N, 1]
             ch_j = chromaticity[b, :, indices[:, 1:]] # Shape: [2, N, n_neighbors]
@@ -82,16 +82,15 @@ def alb_smoothness_loss(pred_alb, n_neighbors,binary_mask_file_path = None, incl
             lum_j = luminance[b, indices[:, 1:]]      # Shape: [N, n_neighbors]
             # Compute weights for each point and its neighbors
             weights = compute_weights_vectorized(ch_i, ch_j, lum_i, lum_j)
-            
         if include_binary_mask:
             weights = binary_mask[b]  # Assuming binary_mask has the same batch dimension
             weighted_norms = weights[:, np.newaxis] * norms  # Apply weights to each neighbor pair
-        else:
+        if include_binary_mask == False and include_chroma_weights == False:
             weights = np.ones_like(norms)
 
         # Compute the weighted smoothness loss for this point cloud
         norms_tensor = torch.tensor(norms, device=pred_alb.device)
-        weights_tensor = torch.tensor(weights, device=pred_alb.device)
+        weights_tensor = weights.clone().detach()
         weighted_norms = weights_tensor * norms_tensor**2
         batch_loss = torch.sum(weighted_norms)
         total_loss += batch_loss
@@ -168,7 +167,14 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
     
     best_val_loss = float('inf')
     epochs_without_improvement = 0
+
+    avg_loss_recon = 0.0
+    avg_loss_lid = 0.0
+    avg_loss_alb = 0.0
+    avg_loss_shd = 0.0
     
+    alpha = 0.9
+
     for epoch in range(epochs):
         start_time = time.time()  # Start the timer
         network.train()
@@ -196,14 +202,14 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             # Reconstruct the point cloud
             reconstructed_pcd = reconstruct_image(pred_alb, pred_shd)
             loss = 0
-            alb_loss_c = 0
-            lid_loss_c = 0
-            shd_loss_c = 0
 
             # Compute loss
             if include_loss_recon:
-                loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
-                
+                loss_recon =  criterion(reconstructed_pcd, img[:,3:6])
+                avg_loss_recon = alpha * avg_loss_recon + (1 - alpha) * loss_recon.item()
+                loss_recon_scaled = loss_recon_coeff * loss_recon / max(1e-8, avg_loss_recon)
+                loss += loss_recon_scaled
+
             if include_loss_lid:
                 epsilon = 0.00001
                 lid_normalized = lid / 65535.0
@@ -212,7 +218,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 # Create a mask for non-zero lidar intensity points
                 nonzero_mask = lid_normalized != 0
 
-                # Calculate components of lid_loss only for non-zero points
+                # Calculate components of loss_lid only for non-zero points
                 gray_alb_diff = torch.abs(gray_alb - s1 * lid_normalized - b1)
                 gray_shd_diff = torch.abs(gray_shd - s2 * (gray_alb / (lid_normalized + epsilon)) - b2)
 
@@ -220,51 +226,46 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 gray_alb_diff_masked = gray_alb_diff * nonzero_mask * 10
                 gray_shd_diff_masked = gray_shd_diff * nonzero_mask
 
-                # Combine the masked differences to form the lid_loss
-                lid_loss = loss_lid_coeff * (gray_alb_diff_masked + gray_shd_diff_masked)
-                lid_loss_c += lid_loss.sum()
+                # Combine the masked differences to form the loss_lid
+                loss_lid = (gray_alb_diff_masked + gray_shd_diff_masked).sum()
 
-                # print("The loss is {}".format(loss))
-                # print("Lid loss sum : {}".format(lid_loss.sum()))
-                loss += lid_loss.sum()
-                # print("The loss is {}".format(loss))
+                avg_loss_lid = alpha * avg_loss_lid + (1 - alpha) * loss_lid.item()
+                loss_lid_scaled = loss_lid_coeff * loss_lid / max(1e-8, avg_loss_lid)
+                loss += loss_lid_scaled
+                running_loss_lid = loss_lid_scaled
 
             
             if include_loss_alb_smoothness:
-                alb_loss = loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-                alb_loss_c += alb_loss
-                loss += alb_loss
-
+                loss_alb = alb_smoothness_loss(pred_alb, 10,None,False, include_chroma_weights, luminance, chromaticity)
+                avg_loss_alb = alpha * avg_loss_alb + (1 - alpha) * loss_alb.item()
+                loss_alb_scaled = loss_alb_smoothness_coeff * loss_alb / max(1e-8, avg_loss_alb)
+                loss += loss_alb_scaled
+                running_loss_alb += loss_alb_scaled
             if include_loss_shading:
-                shd_loss = loss_shading_coeff * shading_loss(pred_shd, img, 10)
-                shd_loss_c += shd_loss
-                loss += shd_loss
+                loss_shd = shading_loss(pred_shd, img, 10)
+                avg_loss_shd = alpha * avg_loss_shd + (1 - alpha) * loss_shd.item()
+                loss_shd_scaled = loss_shading_coeff * loss_shd / max(1e-8, avg_loss_shd)
+                loss += loss_shd_scaled
+                running_loss_shd += loss_shd_scaled
+            
 
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            running_loss_alb += alb_loss_c
-            running_loss_shd += shd_loss_c
-            running_loss_lid += lid_loss_c
-            # for name, parameter in network.named_parameters():
-            #     if parameter.grad is not None:
-            #         print(name)
-            #         if (parameter.grad == 0).all():
-            #             print("Yes")
             # Logging (e.g., with wandb)
             if wandb_activation:
                 wandb.log({"batch_loss": loss.item()})
 
         epoch_loss = running_loss / len(train_loader)
-        epoch_alb_loss = running_loss_alb / len(train_loader)
-        epoch_lid_loss = running_loss_lid / len(train_loader)
-        epoch_shd_loss = running_loss_shd / len(train_loader)
+        epoch_loss_alb = running_loss_alb / len(train_loader)
+        epoch_loss_lid = running_loss_lid / len(train_loader)
+        epoch_loss_shd = running_loss_shd / len(train_loader)
 
         if wandb_activation:
             wandb.log({"epoch_train_loss": epoch_loss, "epoch": epoch})
-            wandb.log({"epoch_alb_loss": epoch_alb_loss, "epoch": epoch})
-            wandb.log({"epoch_lid_loss": epoch_lid_loss, "epoch": epoch})
-            wandb.log({"epoch_shd_loss": epoch_shd_loss, "epoch": epoch})
+            wandb.log({"epoch_loss_alb": epoch_loss_alb, "epoch": epoch})
+            wandb.log({"epoch_loss_lid": epoch_loss_lid, "epoch": epoch})
+            wandb.log({"epoch_loss_shd": epoch_loss_shd, "epoch": epoch})
         
         print(f"Epoch {epoch+1}/{epochs}, Loss: {running_loss/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Alb Loss: {running_loss_alb/len(train_loader)}")
@@ -297,7 +298,11 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 # Load the validation data and transfer to GPU
                 img, norms, lid, _ = val_data
                 img, norms, lid = img.cuda(), norms.cuda(), lid.cuda()
-
+                
+                luminance, chromaticity = None, None
+                if include_chroma_weights:
+                    #lum of size (B,1,N) and chroma of size (B,2,N)
+                    luminance, chromaticity = compute_luminance_and_chromaticity_batched(img)
                 # Forward pass for validation
                 pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
                 gray_alb, gray_shd = point_cloud_to_grayscale_torch(pred_alb), point_cloud_to_grayscale_torch(pred_shd)
@@ -305,13 +310,15 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 # Reconstruct the point cloud for validation
                 reconstructed_pcd = reconstruct_image(pred_alb, pred_shd)
                 val_loss = 0
-                val_alb_loss_c = 0
-                val_lid_loss_c = 0
-                val_shd_loss_c = 0
+                val_loss_alb_c = 0
+                val_loss_lid_c = 0
+                val_loss_shd_c = 0
 
                 # Compute validation loss
                 if include_loss_recon:
-                    val_loss += loss_recon_coeff * criterion(reconstructed_pcd, img[:,3:6])
+                    val_loss_recon = criterion(reconstructed_pcd, img[:,3:6])
+                    val_loss_recon_scaled = loss_recon_coeff * val_loss_recon / max(1e-8, avg_loss_recon)
+                    val_loss += val_loss_recon_scaled
                 
                 if include_loss_lid:
                     epsilon = 0.00001
@@ -321,7 +328,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     # Create a mask for non-zero lidar intensity points
                     nonzero_mask = lid_normalized != 0
 
-                    # Calculate components of lid_loss only for non-zero points
+                    # Calculate components of loss_lid only for non-zero points
                     gray_alb_diff = torch.abs(gray_alb - s1 * lid_normalized - b1)
                     gray_shd_diff = torch.abs(gray_shd - s2 * (gray_alb / (lid_normalized + epsilon)) - b2)
 
@@ -329,34 +336,35 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                     gray_alb_diff_masked = gray_alb_diff * nonzero_mask * 10
                     gray_shd_diff_masked = gray_shd_diff * nonzero_mask
 
-                    # Combine the masked differences to form the lid_loss
-                    val_lid_loss = loss_lid_coeff * (gray_alb_diff_masked + gray_shd_diff_masked)
-                    val_lid_loss_c += lid_loss.sum()
+                    # Combine the masked differences to form the loss_lid
+                    val_loss_lid = (gray_alb_diff_masked + gray_shd_diff_masked).sum()
 
+                    val_loss_lid_scaled = loss_lid_coeff * val_loss_lid / max(1e-8, avg_loss_lid)
+                    val_loss += val_loss_lid_scaled
                     # print("The loss is {}".format(loss))
-                    # print("Lid loss sum : {}".format(lid_loss.sum()))
-                    val_loss += val_lid_loss.sum()
+                    # print("Lid loss sum : {}".format(loss_lid.sum()))
+                    val_running_loss_lid += val_loss_lid_scaled
                     # print("The loss is {}".format(loss))
 
                 if include_loss_alb_smoothness:
-                    val_alb_loss = loss_alb_smoothness_coeff * alb_smoothness_loss(pred_alb, 10, include_chroma_weights, luminance, chromaticity)
-                    val_alb_loss_c += val_alb_loss
-                    val_loss += val_alb_loss
+                    val_loss_alb = alb_smoothness_loss(pred_alb, 10,None,False, include_chroma_weights, luminance, chromaticity)
+                    val_loss_alb_scaled = loss_alb_smoothness_coeff * val_loss_alb / max(1e-8, avg_loss_alb)
+                    val_loss += val_loss_alb_scaled
+                    val_running_loss_alb += val_loss_alb_scaled
 
                 if include_loss_shading:
-                    val_shd_loss = loss_shading_coeff * shading_loss(pred_shd, img, 10)
-                    val_shd_loss_c += val_shd_loss
-                    val_loss += val_shd_loss
+                    val_loss_shd = shading_loss(pred_shd, img, 10)
+                    val_loss_shd_scaled = loss_shading_coeff * val_loss_shd / max(1e-8, avg_loss_shd)
+                    val_running_loss_shd += val_loss_shd_scaled.item()
+                    val_loss += val_loss_shd_scaled
                 # Accumulate the validation loss
-                val_running_loss += val_loss.item()
-                val_running_loss_alb += val_alb_loss_c
-                val_running_loss_lid += val_lid_loss_c
-                val_running_loss_shd += val_shd_loss_c
+                val_running_loss += val_loss
+
         # Calculate average validation loss for the epoch
         epoch_val_loss = val_running_loss / len(val_loader)
-        epoch_val_alb_loss = val_running_loss_alb / len(val_loader)
-        epoch_val_lid_loss = val_running_loss_lid / len(val_loader)
-        epoch_val_shd_loss = val_running_loss_shd / len(val_loader)
+        epoch_val_loss_alb = val_running_loss_alb / len(val_loader)
+        epoch_val_loss_lid = val_running_loss_lid / len(val_loader)
+        epoch_val_loss_shd = val_running_loss_shd / len(val_loader)
 
         if epoch_val_loss < best_val_loss - early_stopping_delta:
             best_val_loss = epoch_val_loss
@@ -371,9 +379,9 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
         # Log validation loss to wandb
         if wandb_activation:
             wandb.log({"epoch_val_loss": epoch_val_loss, "epoch": epoch})
-            wandb.log({"epoch_val_alb_loss": epoch_val_alb_loss, "epoch": epoch})
-            wandb.log({"epoch_val_lid_loss": epoch_val_lid_loss, "epoch": epoch})
-            wandb.log({"epoch_val_shd_loss": epoch_val_shd_loss, "epoch": epoch})
+            wandb.log({"epoch_val_loss_alb": epoch_val_loss_alb, "epoch": epoch})
+            wandb.log({"epoch_val_loss_lid": epoch_val_loss_lid, "epoch": epoch})
+            wandb.log({"epoch_val_loss_shd": epoch_val_loss_shd, "epoch": epoch})
 
         print(f"Epoch {epoch+1}/{epochs}, Validation Loss: {epoch_val_loss}")
     end_time = time.time()
@@ -491,7 +499,7 @@ def main_train():
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
     # Initialize the network
-    network = setup_network('pre_trained_model/albedo_test_20.000000_0.0000_4.pth')
+    network = setup_network('pre_trained_model/all_intrinsic.pth')
     s1 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     s2 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     b1 = nn.Parameter(torch.tensor([0.0], device='cuda'))

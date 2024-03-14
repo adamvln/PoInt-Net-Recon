@@ -168,20 +168,15 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
     best_val_loss = float('inf')
     epochs_without_improvement = 0
 
-    avg_loss_recon = 0.0
-    avg_loss_lid = 0.0
-    avg_loss_alb = 0.0
-    avg_loss_shd = 0.0
+    avg_loss_recon, avg_loss_lid, avg_loss_alb, avg_loss_shd = 0.0, 0.0, 0.0, 0.0
     
     alpha = 0.9
 
     for epoch in range(epochs):
         start_time = time.time()  # Start the timer
         network.train()
-        running_loss = 0.0
-        running_loss_alb = 0.0
-        running_loss_lid = 0.0
-        running_loss_shd = 0.0
+        running_loss, running_loss_alb, running_loss_lid, running_loss_shd = 0.0, 0.0, 0.0, 0.0
+        
         for data in tqdm(train_loader):
             # Load the data and transfer to GPU
             img, norms, lid, fn = data
@@ -234,13 +229,13 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 loss += loss_lid_scaled
                 running_loss_lid = loss_lid_scaled
 
-            
             if include_loss_alb_smoothness:
                 loss_alb = alb_smoothness_loss(pred_alb, 10,None,False, include_chroma_weights, luminance, chromaticity)
                 avg_loss_alb = alpha * avg_loss_alb + (1 - alpha) * loss_alb.item()
                 loss_alb_scaled = loss_alb_smoothness_coeff * loss_alb / max(1e-8, avg_loss_alb)
                 loss += loss_alb_scaled
                 running_loss_alb += loss_alb_scaled
+
             if include_loss_shading:
                 loss_shd = shading_loss(pred_shd, img, 10)
                 avg_loss_shd = alpha * avg_loss_shd + (1 - alpha) * loss_shd.item()
@@ -248,7 +243,6 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 loss += loss_shd_scaled
                 running_loss_shd += loss_shd_scaled
             
-
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -289,10 +283,8 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
 
         # Validation phase
         network.eval()
-        val_running_loss = 0.0
-        val_running_loss_alb = 0
-        val_running_loss_lid = 0
-        val_running_loss_shd = 0
+        val_running_loss, val_running_loss_alb, val_running_loss_lid, val_running_loss_shd = 0.0, 0, 0, 0
+
         with torch.no_grad():
             for val_data in tqdm(val_loader):
                 # Load the validation data and transfer to GPU
@@ -303,6 +295,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 if include_chroma_weights:
                     #lum of size (B,1,N) and chroma of size (B,2,N)
                     luminance, chromaticity = compute_luminance_and_chromaticity_batched(img)
+                
                 # Forward pass for validation
                 pred_shd, pred_alb = network(img, norms, point_pos_in=1, ShaderOnly=False)
                 gray_alb, gray_shd = point_cloud_to_grayscale_torch(pred_alb), point_cloud_to_grayscale_torch(pred_shd)
@@ -310,9 +303,6 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 # Reconstruct the point cloud for validation
                 reconstructed_pcd = reconstruct_image(pred_alb, pred_shd)
                 val_loss = 0
-                val_loss_alb_c = 0
-                val_loss_lid_c = 0
-                val_loss_shd_c = 0
 
                 # Compute validation loss
                 if include_loss_recon:
@@ -341,10 +331,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
 
                     val_loss_lid_scaled = loss_lid_coeff * val_loss_lid / max(1e-8, avg_loss_lid)
                     val_loss += val_loss_lid_scaled
-                    # print("The loss is {}".format(loss))
-                    # print("Lid loss sum : {}".format(loss_lid.sum()))
                     val_running_loss_lid += val_loss_lid_scaled
-                    # print("The loss is {}".format(loss))
 
                 if include_loss_alb_smoothness:
                     val_loss_alb = alb_smoothness_loss(pred_alb, 10,None,False, include_chroma_weights, luminance, chromaticity)
@@ -430,7 +417,8 @@ def main_train():
     parser.add_argument('--path_to_val_nm', type=str, default='./Data/gts/nm_split_0.5_val/', help='path to val data')
 
     parser.add_argument('--save_model_path', type=str, default='./pre_trained_model/shd_{lr:.4f}_{loss_shading_coeff:4f}.pth', help='path to save the trained model')
-    
+    parser.add_argument('--path_to_model', type=str, default='./pre_trained_model/all_intrinsic.pth', help='path to the pre-trained model')
+
     parser.add_argument('--include_loss_recon', type=bool, default=True, help='whether to include reconstruction loss in the total loss computation')
     parser.add_argument('--include_loss_alb_smoothness', type=bool, default=False, help='whether to include albedo smoothness loss in the total loss computation')
     parser.add_argument('--include_loss_lid', type=bool, default=False, help='whether to include loss_lid in the total loss computation')
@@ -498,12 +486,18 @@ def main_train():
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=opt.batch_size, 
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
-    print(len(train_loader))
+    
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=opt.batch_size, 
                                              shuffle=False, num_workers=opt.workers, 
                                              collate_fn=custom_collate_fn, drop_last=True)
+    
+    print(f"There is {len(train_loader)} batches in the trainloader")
+
     # Initialize the network
-    network = setup_network('pre_trained_model/all_intrinsic.pth')
+    print(f"The pre-trained model is loaded from {opt.path_to_model}")
+    network = setup_network(opt.path_to_model)
+
+    # Parameters for LiDAR Loss
     s1 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     s2 = nn.Parameter(torch.tensor([1.0], device='cuda'))
     b1 = nn.Parameter(torch.tensor([0.0], device='cuda'))
@@ -512,9 +506,10 @@ def main_train():
     # Define the loss function and optimizer
     criterion = nn.MSELoss(reduction = 'sum')
     optimizer = optim.SGD([
-        {'params': network.parameters()},
-        {'params': [s1, s2, b1, b2]}
-    ], lr=opt.lr)
+    {'params': network.parameters()},
+    {'params': [s1, s2, b1, b2]}
+    ], lr=opt.lr, momentum=0.9)   # 0.9 is a common value for momentum, but you can adjust it as needed
+
 
     # Start the training    
     train_model(network, train_loader, val_loader, optimizer, criterion, opt.epochs, s1, s2, b1, b2, opt.save_model_path, opt.include_loss_recon, opt.include_loss_lid, opt.include_loss_alb_smoothness, opt.include_loss_shading, opt.include_chroma_weights, opt.loss_recon_coeff, opt.loss_lid_coeff, opt.loss_alb_smoothness_coeff, opt.loss_shading_coeff, opt.wandb)

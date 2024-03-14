@@ -145,7 +145,7 @@ def shading_loss(pred_shd, img, n_neighbors):
     return final_loss
 
 def train_model(network, train_loader, val_loader, optimizer, criterion, epochs, s1, s2,
-         b1, b2, save_model_path, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False, early_stopping_patience=10, early_stopping_delta=0.001):
+         b1, b2, save_model_path, include_loss_recon = True, include_loss_lid=False, include_loss_alb_smoothness = False, include_loss_shading = False, include_chroma_weights = False, loss_recon_coeff = 1, loss_lid_coeff=1.0, loss_alb_smoothness_coeff = 1.0, loss_shading_coeff = 1.0, wandb_activation = False, early_stopping_patience=3, early_stopping_delta=0):
     """
     Train the PoIntNet model.
 
@@ -266,7 +266,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
         print(f"Epoch {epoch+1}/{epochs}, Lid Loss: {running_loss_lid/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Shd Loss: {running_loss_shd/len(train_loader)}")
         
-        if (epoch + 1) % 30 == 0:
+        if (epoch + 1) % 10 == 0:
             checkpoint_path = f"{save_model_path}_epoch_{epoch + 1}.pth"
             torch.save({
                 'epoch': epoch + 1,
@@ -353,12 +353,12 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
         epoch_val_loss_lid = val_running_loss_lid / len(val_loader)
         epoch_val_loss_shd = val_running_loss_shd / len(val_loader)
 
-        if epoch_val_loss < best_val_loss - early_stopping_delta:
+        if epoch_val_loss < best_val_loss - early_stopping_delta and epoch > 1:
             best_val_loss = epoch_val_loss
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-
+        print(epochs_without_improvement)
         if epochs_without_improvement >= early_stopping_patience:
             print(f"Early stopping triggered at epoch {epoch+1}")
             break

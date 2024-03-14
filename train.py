@@ -469,7 +469,11 @@ def main_train():
     if opt.include_loss_alb_smoothness == False and opt.include_loss_shading == False and opt.include_loss_lid == False and opt.include_loss_recon == True:
         opt.save_model_path = f'./pre_trained_model/recon_only/{opt.lr:.4f}_{opt.batch_size}_{date_time_str}.pth'
         wandb_name = extract_substring(opt.save_model_path)
-
+    
+    if opt.include_loss_alb_smoothness == True and opt.include_loss_shading == True and opt.include_loss_lid == True:
+        opt.save_model_path = f'./pre_trained_model/all_losses/{opt.loss_alb_smoothness_coeff:4f}_{opt.loss_shading_coeff:4f}_{opt.loss_lid_coeff:4f}_{opt.lr}_{opt.batch_size}_{date_time_str}.pth'
+        wandb_name = extract_substring(opt.save_model_path)
+        
     if opt.wandb:
         wandb.init(project="iid_pc", name =wandb_name ,config={
         "epochs": opt.epochs,

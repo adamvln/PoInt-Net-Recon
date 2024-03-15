@@ -246,7 +246,7 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
-            # Logging (e.g., with wandb)
+
             if wandb_activation:
                 wandb.log({"batch_loss": loss.item()})
 
@@ -266,8 +266,15 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
         print(f"Epoch {epoch+1}/{epochs}, Lid Loss: {running_loss_lid/len(train_loader)}")
         print(f"Epoch {epoch+1}/{epochs}, Shd Loss: {running_loss_shd/len(train_loader)}")
         
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = f"{save_model_path}_epoch_{epoch + 1}.pth"
+        if save_model_path.endswith('.pth'):
+            save_model_path = save_model_path[:-4]
+
+        # Ensure the directory exists
+        if not os.path.exists(save_model_path):
+            os.makedirs(save_model_path)
+
+        if (epoch + 1) % 1 == 0:
+            checkpoint_path = os.path.join(save_model_path, f"checkpoint_epoch_{epoch + 1}.pth")
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': network.state_dict(),
@@ -276,9 +283,9 @@ def train_model(network, train_loader, val_loader, optimizer, criterion, epochs,
                 's2': s2,
                 'b1': b1,
                 'b2': b2,
-                'loss': epoch_loss,
-                'val_loss': epoch_val_loss
+                'loss': epoch_loss
             }, checkpoint_path)
+            print(checkpoint_path)
             print(f"Checkpoint saved at epoch {epoch + 1}")
 
         # Validation phase
